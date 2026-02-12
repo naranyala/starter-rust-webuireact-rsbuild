@@ -8,7 +8,7 @@ This project exists because building desktop applications from scratch is unnece
 
 The architecture separates concerns cleanly: Rust handles system integration, data persistence, and business logic, while React manages the user interface through familiar component-based patterns. The two layers communicate through a bridge that transmits typed data and events in both directions, giving you the best of both worlds without sacrificing either performance or developer velocity.
 
-Developers choose this stack for specific reasons that matter in production environments. Rust's zero-cost abstractions mean your backend code executes with native speed, and its memory safety guarantees eliminate entire categories of bugs that plague desktop applications. React's component model and extensive ecosystem provide everything needed to build complex, responsive interfaces quickly. When you combine these strengths with rspack's blazing-fast bundling, you get a development experience that feels lightweight despite producing fully-featured desktop software.
+Developers choose this stack for specific reasons that matter in production environments. Rust's zero-cost abstractions mean your backend code executes with native speed, and its memory safety guarantees eliminate entire categories of bugs that plague desktop applications. React's component model and extensive ecosystem provide everything needed to build complex, responsive interfaces quickly. When you combine these strengths with rsbuild's blazing-fast bundling, you get a development experience that feels lightweight despite producing fully-featured desktop software.
 
 ## Project Architecture
 
@@ -25,7 +25,7 @@ The infrastructure layer provides low-level capabilities that higher layers cons
 The project root contains everything needed to build, run, and distribute the application. Understanding this structure helps you navigate the codebase confidently and locate the files you need to modify.
 
 ```
-starter-rust-webuireact-rspack/
+starter-rust-webuireact-rsbuild/
 ├── src/                          # Rust backend source code
 │   ├── main.rs                   # Application entry point
 │   ├── core.rs                   # Core infrastructure (config, logging, database)
@@ -36,9 +36,9 @@ starter-rust-webuireact-rspack/
 │   │   ├── use-cases/
 │   │   │   └── App.tsx           # Main application component
 │   │   └── utils.js              # JavaScript utilities
-│   ├── rspack.config.ts          # Production bundler configuration
-│   ├── rspack.config.dev.ts      # Development bundler configuration
-│   ├── rspack.config.inline.ts   # Inline asset configuration
+│   ├── rsbuild.config.ts         # Production bundler configuration
+│   ├── rsbuild.config.dev.ts     # Development bundler configuration
+│   ├── rsbuild.config.inline.ts  # Inline asset configuration
 │   ├── package.json              # Node.js dependencies
 │   ├── tsconfig.json             # TypeScript configuration
 │   └── biome.json                # Code formatting rules
@@ -103,7 +103,7 @@ The release profile configuration enables link-time optimization and single code
 
 ## Frontend Components
 
-The frontend application uses React for component-based user interface development, TypeScript for type safety, and rspack for high-performance bundling. This combination delivers excellent developer experience while producing optimized production assets.
+The frontend application uses React for component-based user interface development, TypeScript for type safety, and rsbuild for high-performance bundling. This combination delivers excellent developer experience while producing optimized production assets.
 
 ### main.tsx (42 lines)
 
@@ -129,9 +129,9 @@ The component includes extensive inline styles that provide a dark theme appeara
 
 ### Configuration Files
 
-The frontend uses three rspack configuration files that control how TypeScript code transforms into optimized JavaScript bundles. The production configuration enables tree shaking, minification, and code splitting. The development configuration preserves source maps and enables hot module replacement for rapid iteration. The inline configuration bundles assets directly into the HTML file for simplified distribution.
+The frontend uses three rsbuild configuration files that control how TypeScript code transforms into optimized JavaScript bundles. The production configuration enables tree shaking, minification, and code splitting. The development configuration preserves source maps and enables hot module replacement for rapid iteration. The inline configuration bundles assets directly into the HTML file for simplified distribution.
 
-The `package.json` file declares dependencies on React and ReactDOM for the user interface, WinBox for window management, and various development dependencies including rspack for bundling, TypeScript for type checking, and Biome for formatting and linting. The scripts section defines convenient commands for building, linting, and formatting the codebase.
+The `package.json` file declares dependencies on React and ReactDOM for the user interface, WinBox for window management, and various development dependencies including rsbuild for bundling, TypeScript for type checking, and Biome for formatting and linting. The scripts section defines convenient commands for building, linting, and formatting the codebase.
 
 The `tsconfig.json` file configures TypeScript compilation, enabling strict type checking, JSX syntax support, and modern ECMAScript targets. The configuration ensures that type errors prevent builds and that the compiled code runs in contemporary browsers.
 
@@ -143,9 +143,9 @@ The build system combines Rust compilation with frontend bundling, producing a s
 
 ### Build Pipeline
 
-The `run.sh` script orchestrates the complete build and execution process. It compiles Rust code using Cargo, builds frontend assets using rspack through bun, and launches the resulting application. The script accepts arguments for different build modes, allowing developers to build debug or release versions, run applications without rebuilding, or clean generated artifacts.
+The `run.sh` script orchestrates the complete build and execution process. It compiles Rust code using Cargo, builds frontend assets using rsbuild through bun, and launches the resulting application. The script accepts arguments for different build modes, allowing developers to build debug or release versions, run applications without rebuilding, or clean generated artifacts.
 
-The `build-frontend.js` script invokes rspack with appropriate configuration, transforming TypeScript and React code into JavaScript bundles optimized for production. The script handles asset copying, HTML template generation, and cache invalidation automatically.
+The `build-frontend.js` script invokes rsbuild with appropriate configuration, transforming TypeScript and React code into JavaScript bundles optimized for production. The script handles asset copying, HTML template generation, and cache invalidation automatically.
 
 The `build.rs` script runs during Rust compilation, compiling the WebUI C library into a static archive that links with the application. This script uses the CC crate to invoke the platform C compiler, managing platform-specific compiler flags and include paths.
 
