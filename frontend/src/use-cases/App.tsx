@@ -1,4 +1,5 @@
 import React, { useState, useEffect, useCallback } from 'react';
+import { EventBus, AppEventType, useEventBus, useEventEmitter } from '../event-bus';
 
 declare global {
   interface Window {
@@ -366,8 +367,27 @@ const App: React.FC = () => {
     }));
   };
 
+  // Event emitter hook
+  const emitEvent = useEventEmitter();
+
+  // Subscribe to backend connected event
+  useEventBus(AppEventType.BACKEND_CONNECTED, (event) => {
+    Logger.info('Backend connected', event.payload);
+    emitEvent(AppEventType.UI_READY, { 
+      timestamp: Date.now(),
+      message: 'Frontend UI is ready and listening'
+    });
+  });
+
   useEffect(() => {
     Logger.info('Application initialized');
+    
+    // Emit app start event
+    emitEvent(AppEventType.APP_START, { 
+      timestamp: Date.now(),
+      platform: 'frontend',
+      userAgent: navigator.userAgent
+    });
 
     window.refreshUsers = () => {
       Logger.info('Refreshing users from database');
@@ -398,6 +418,13 @@ const App: React.FC = () => {
         setDbUsers(response.data || []);
         Logger.info('Users loaded from database', { count: response.data?.length || 0 });
         updateSQLiteTable();
+        
+        // Emit data changed event
+        emitEvent(AppEventType.DATA_CHANGED, {
+          table: 'users',
+          count: response.data?.length || 0,
+          action: 'loaded'
+        });
       } else {
         Logger.error('Failed to load users', { error: response.error });
       }
@@ -420,8 +447,14 @@ const App: React.FC = () => {
       window.removeEventListener('db_response', handleDbResponse);
       window.removeEventListener('stats_response', handleStatsResponse);
       window.removeEventListener('resize', handleWindowResize);
+      
+      // Emit app shutdown event
+      emitEvent(AppEventType.APP_SHUTDOWN, { 
+        timestamp: Date.now(),
+        reason: 'component_unmount'
+      });
     };
-  }, [updateSQLiteTable]);
+  }, [updateSQLiteTable, emitEvent]);
 
   return (
     <>

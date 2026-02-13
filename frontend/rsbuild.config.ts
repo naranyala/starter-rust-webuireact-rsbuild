@@ -43,7 +43,7 @@ export default defineConfig({
   },
   html: {
     template: './index.html',
-    scriptLoading: 'defer',
+    scriptLoading: 'blocking',
     inject: 'body',
   },
 });

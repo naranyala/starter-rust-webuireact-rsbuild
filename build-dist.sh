@@ -7,13 +7,59 @@
 
 set -e
 
-# Colors for output
-RED='\033[0;31m'
-GREEN='\033[0;32m'
-YELLOW='\033[1;33m'
-BLUE='\033[0;34m'
-CYAN='\033[0;36m'
-NC='\033[0m'
+# Timestamp function
+timestamp() {
+    date '+%Y-%m-%d %H:%M:%S.%3N'
+}
+
+# Enhanced logging function
+log() {
+    local level=$1
+    local message=$2
+    local timestamp_val=$(timestamp)
+    local elapsed=$(( $(date +%s%N) / 1000000 - DIST_START_TIME_MS ))
+    
+    # Log to console with colors
+    case $level in
+        "DIST")
+            echo -e "\033[32m[$level]\033[0m \033[90m[$timestamp_val]\033[0m \033[36m[$elapsed ms]\033[0m $message"
+            ;;
+        "WARN")
+            echo -e "\033[33m[$level]\033[0m \033[90m[$timestamp_val]\033[0m \033[36m[$elapsed ms]\033[0m $message"
+            ;;
+        "ERROR")
+            echo -e "\033[31m[$level]\033[0m \033[90m[$timestamp_val]\033[0m \033[36m[$elapsed ms]\033[0m $message"
+            ;;
+        "STEP")
+            echo -e "\033[34m[$level]\033[0m \033[90m[$timestamp_val]\033[0m \033[36m[$elapsed ms]\033[0m $message"
+            ;;
+        "INFO")
+            echo -e "\033[36m[$level]\033[0m \033[90m[$timestamp_val]\033[0m \033[36m[$elapsed ms]\033[0m $message"
+            ;;
+        *)
+            echo -e "\033[37m[$level]\033[0m \033[90m[$timestamp_val]\033[0m \033[36m[$elapsed ms]\033[0m $message"
+            ;;
+    esac
+    
+    # Log to file in JSON format
+    if [ -n "$DIST_BUILD_LOG_FILE" ]; then
+        printf '{"timestamp":"%s","level":"%s","message":"%s","elapsed_ms":%d}\n' \
+            "$timestamp_val" "$level" "$message" "$elapsed" >> "$DIST_BUILD_LOG_FILE"
+    fi
+}
+
+# Initialize start time
+DIST_START_TIME_MS=$(date +%s%N)/1000000
+DIST_BUILD_LOG_FILE=${DIST_BUILD_LOG_FILE:-"./dist-build.log"}
+
+# Clear log file if it exists
+if [ -f "$DIST_BUILD_LOG_FILE" ]; then
+    rm "$DIST_BUILD_LOG_FILE"
+fi
+
+log "INFO" "========================================"
+log "INFO" "Cross-Platform Distribution Builder"
+log "INFO" "========================================"
 
 # Configuration
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
@@ -33,7 +79,7 @@ detect_platform() {
         CYGWIN*|MINGW*|MSYS*) PLATFORM="windows";;
         *)          PLATFORM="unknown";;
     esac
-    echo "Detected platform: $PLATFORM"
+    log "INFO" "Detected platform: $PLATFORM"
 }
 
 # Architecture detection
@@ -44,33 +90,12 @@ detect_arch() {
         armv7l)         ARCH="arm";;
         *)              ARCH="x64";;
     esac
-    echo "Detected architecture: $ARCH"
-}
-
-# Print colored output
-print_status() {
-    echo -e "${GREEN}[DIST]${NC} $1"
-}
-
-print_warning() {
-    echo -e "${YELLOW}[WARN]${NC} $1"
-}
-
-print_error() {
-    echo -e "${RED}[ERROR]${NC} $1"
-}
-
-print_step() {
-    echo -e "${BLUE}[STEP]${NC} $1"
-}
-
-print_info() {
-    echo -e "${CYAN}[INFO]${NC} $1"
+    log "INFO" "Detected architecture: $ARCH"
 }
 
 # Read configuration from app.config.toml
 read_config() {
-    print_step "Reading configuration..."
+    log "STEP" "Reading configuration..."
 
     if [ -f "app.config.toml" ]; then
         # Read executable name
@@ -87,30 +112,30 @@ read_config() {
         APP_NAME=$(grep '^name = ' Cargo.toml | head -1 | cut -d'"' -f2 || echo "rustwebui-app")
     fi
 
-    print_status "App name: $APP_NAME"
-    print_status "App version: $APP_VERSION"
+    log "DIST" "App name: $APP_NAME"
+    log "DIST" "App version: $APP_VERSION"
 }
 
 # Check prerequisites
 check_prerequisites() {
-    print_step "Checking prerequisites..."
+    log "STEP" "Checking prerequisites..."
 
     local missing=0
 
     # Check for Cargo
     if ! command -v cargo &> /dev/null; then
-        print_error "Cargo is not installed. Please install Rust from https://rustup.rs/"
+        log "ERROR" "Cargo is not installed. Please install Rust from https://rustup.rs/"
         missing=1
     else
-        print_status "Cargo found: $(cargo --version)"
+        log "DIST" "Cargo found: $(cargo --version)"
     fi
 
     # Check for Bun (frontend build)
     if ! command -v bun &> /dev/null; then
-        print_warning "Bun is not installed. Frontend build may fail."
-        print_warning "Install Bun from https://bun.sh/"
+        log "WARN" "Bun is not installed. Frontend build may fail."
+        log "WARN" "Install Bun from https://bun.sh/"
     else
-        print_status "Bun found: $(bun --version)"
+        log "DIST" "Bun found: $(bun --version)"
     fi
 
     if [ $missing -eq 1 ]; then
@@ -120,16 +145,16 @@ check_prerequisites() {
 
 # Build frontend
 build_frontend() {
-    print_step "Building frontend..."
+    log "STEP" "Building frontend..."
 
     if [ ! -d "frontend" ]; then
-        print_warning "Frontend directory not found, skipping frontend build"
+        log "WARN" "Frontend directory not found, skipping frontend build"
         return 0
     fi
 
     # Install frontend dependencies if needed
     if [ ! -d "frontend/node_modules" ]; then
-        print_status "Installing frontend dependencies..."
+        log "DIST" "Installing frontend dependencies..."
         cd frontend
         bun install
         cd ..
@@ -137,10 +162,15 @@ build_frontend() {
 
     # Build frontend
     if [ -f "build-frontend.js" ]; then
+        # Set environment variables for enhanced logging in frontend build
+        export BUILD_LOG_LEVEL=${BUILD_LOG_LEVEL:-"info"}
+        export BUILD_LOG_TO_FILE=${BUILD_LOG_TO_FILE:-"true"}
+        export BUILD_LOG_FILE_PATH="./frontend-dist-build.log"
+        
         bun build-frontend.js
-        print_status "Frontend built successfully"
+        log "DIST" "Frontend built successfully"
     else
-        print_warning "build-frontend.js not found, skipping frontend build"
+        log "WARN" "build-frontend.js not found, skipping frontend build"
     fi
 
     cd "$SCRIPT_DIR"
@@ -148,9 +178,10 @@ build_frontend() {
 
 # Build Rust application
 build_rust() {
-    print_step "Building Rust application..."
+    log "STEP" "Building Rust application..."
 
     local build_type="${1:-release}"
+    local build_start_time=$(date +%s%N)/1000000
 
     if [ "$build_type" = "release" ]; then
         cargo build --release
@@ -158,14 +189,15 @@ build_rust() {
         cargo build
     fi
 
-    print_status "Rust build completed"
+    local build_duration=$(( $(date +%s%N)/1000000 - build_start_time ))
+    log "DIST" "Rust build completed! (Duration: ${build_duration}ms)"
 }
 
 # Build for current platform
 build_current_platform() {
     local build_type="${1:-release}"
 
-    print_step "Building for current platform ($PLATFORM-$ARCH)..."
+    log "STEP" "Building for current platform ($PLATFORM-$ARCH)..."
 
     # Build frontend
     build_frontend
@@ -173,7 +205,7 @@ build_current_platform() {
     # Build Rust
     build_rust "$build_type"
 
-    print_status "Build completed for $PLATFORM-$ARCH"
+    log "DIST" "Build completed for $PLATFORM-$ARCH"
 }
 
 # Create distribution package
@@ -181,7 +213,7 @@ create_dist_package() {
     local build_type="${1:-release}"
     local output_dir="$DIST_DIR/${APP_NAME}-${APP_VERSION}-${PLATFORM}-${ARCH}"
 
-    print_step "Creating distribution package..."
+    log "STEP" "Creating distribution package..."
 
     # Clean and create output directory
     rm -rf "$output_dir"
@@ -211,31 +243,31 @@ create_dist_package() {
     fi
 
     if [ ! -f "$source_exe" ]; then
-        print_error "Executable not found: $source_exe"
+        log "ERROR" "Executable not found: $source_exe"
         return 1
     fi
 
     # Copy executable
     cp "$source_exe" "${output_dir}/${exe_name}"
     chmod +x "${output_dir}/${exe_name}"
-    print_status "Copied executable: $exe_name"
+    log "DIST" "Copied executable: $exe_name"
 
     # Copy static files (frontend)
     if [ -d "static" ]; then
         cp -r static "$output_dir/"
-        print_status "Copied static files"
+        log "DIST" "Copied static files"
     fi
 
     # Copy database (if exists)
     if [ -f "app.db" ]; then
         cp app.db "$output_dir/"
-        print_status "Copied database"
+        log "DIST" "Copied database"
     fi
 
     # Copy configuration
     if [ -f "app.config.toml" ]; then
         cp app.config.toml "$output_dir/"
-        print_status "Copied configuration"
+        log "DIST" "Copied configuration"
     fi
 
     # Create README for the package
@@ -247,11 +279,11 @@ create_dist_package() {
     # Create archive
     create_archive "$output_dir"
 
-    print_status "Distribution package created: $output_dir"
+    log "DIST" "Distribution package created: $output_dir"
 
     # Print package size
     local size=$(du -sh "$output_dir" 2>/dev/null | cut -f1 || echo "unknown")
-    print_status "Package size: $size"
+    log "DIST" "Package size: $size"
 }
 
 # Create README for distribution
@@ -283,7 +315,7 @@ Features:
 ================================================================================
 EOF
 
-    print_status "Created README.txt"
+    log "DIST" "Created README.txt"
 }
 
 # Create startup script
@@ -304,7 +336,7 @@ export RUSTWEBUI_HOME="$SCRIPT_DIR"
 STARTUP_EOF
 
     chmod +x "$script_file"
-    print_status "Created startup script: start.sh"
+    log "DIST" "Created startup script: start.sh"
 }
 
 # Create archive
@@ -312,25 +344,25 @@ create_archive() {
     local dir="$1"
     local archive_name=$(basename "$dir")
 
-    print_step "Creating archive..."
+    log "STEP" "Creating archive..."
 
     cd "$DIST_DIR"
 
     case "$PLATFORM" in
         linux)
             tar -czf "${archive_name}.tar.gz" "$archive_name"
-            print_status "Created: ${archive_name}.tar.gz"
+            log "DIST" "Created: ${archive_name}.tar.gz"
             ;;
         macos)
             tar -czf "${archive_name}.tar.gz" "$archive_name"
-            print_status "Created: ${archive_name}.tar.gz"
+            log "DIST" "Created: ${archive_name}.tar.gz"
             ;;
         windows)
             if command -v zip &> /dev/null; then
                 zip -rq "${archive_name}.zip" "$archive_name"
-                print_status "Created: ${archive_name}.zip"
+                log "DIST" "Created: ${archive_name}.zip"
             else
-                print_warning "zip not found, skipping zip archive"
+                log "WARN" "zip not found, skipping zip archive"
             fi
             ;;
     esac
@@ -342,46 +374,46 @@ create_archive() {
 build_and_package() {
     local build_type="${1:-release}"
 
-    print_step "Building and packaging for $PLATFORM-$ARCH..."
+    log "STEP" "Building and packaging for $PLATFORM-$ARCH..."
 
     build_current_platform "$build_type"
     create_dist_package "$build_type"
 
-    print_status "Build and package complete!"
+    log "DIST" "Build and package complete!"
 }
 
 # Cross-compilation setup (advanced)
 setup_cross_compile() {
-    print_step "Setting up cross-compilation..."
+    log "STEP" "Setting up cross-compilation..."
 
     case "$1" in
         windows)
-            print_info "To cross-compile for Windows from Linux:"
-            print_info "  rustup target add x86_64-pc-windows-gnu"
-            print_info "  cargo build --release --target x86_64-pc-windows-gnu"
+            log "INFO" "To cross-compile for Windows from Linux:"
+            log "INFO" "  rustup target add x86_64-pc-windows-gnu"
+            log "INFO" "  cargo build --release --target x86_64-pc-windows-gnu"
             ;;
         macos)
-            print_info "Cross-compilation for macOS requires macOS build machine"
-            print_info "or use osxcross (https://github.com/tpoechtrager/osxcross)"
+            log "INFO" "Cross-compilation for macOS requires macOS build machine"
+            log "INFO" "or use osxcross (https://github.com/tpoechtrager/osxcross)"
             ;;
         linux)
-            print_info "For Linux ARM builds:"
-            print_info "  rustup target add aarch64-unknown-linux-gnu"
-            print_info "  cargo build --release --target aarch64-unknown-linux-gnu"
+            log "INFO" "For Linux ARM builds:"
+            log "INFO" "  rustup target add aarch64-unknown-linux-gnu"
+            log "INFO" "  cargo build --release --target aarch64-unknown-linux-gnu"
             ;;
     esac
 }
 
 # Full build for all platforms (requires CI/CD or multiple machines)
 build_all_platforms() {
-    print_error "Full cross-platform build requires:"
-    print_error "  1. Multiple build machines (Windows, macOS, Linux)"
-    print_error "  2. Or use GitHub Actions for CI/CD"
-    print_error ""
-    print_info "Recommended approach: Use GitHub Actions workflow"
-    print_info "See: .github/workflows/cross-build.yml"
+    log "ERROR" "Full cross-platform build requires:"
+    log "ERROR" "  1. Multiple build machines (Windows, macOS, Linux)"
+    log "ERROR" "  2. Or use GitHub Actions for CI/CD"
+    log "ERROR" ""
+    log "INFO" "Recommended approach: Use GitHub Actions workflow"
+    log "INFO" "See: .github/workflows/cross-build.yml"
 
-    print_step "Building for current platform only..."
+    log "STEP" "Building for current platform only..."
     build_and_package "release"
 }
 
@@ -389,10 +421,10 @@ build_all_platforms() {
 verify_self_contained() {
     local dir="${1:-$DIST_DIR}/${APP_NAME}-${APP_VERSION}-${PLATFORM}-${ARCH}"
 
-    print_step "Verifying self-contained package..."
+    log "STEP" "Verifying self-contained package..."
 
     if [ ! -d "$dir" ]; then
-        print_error "Directory not found: $dir"
+        log "ERROR" "Directory not found: $dir"
         return 1
     fi
 
@@ -400,81 +432,80 @@ verify_self_contained() {
     if [ ! -f "$dir/${APP_NAME}" ]; then
         if [ "$PLATFORM" = "windows" ]; then
             if [ ! -f "$dir/${APP_NAME}.exe" ]; then
-                print_error "Executable not found"
+                log "ERROR" "Executable not found"
                 return 1
             fi
         else
-            print_error "Executable not found"
+            log "ERROR" "Executable not found"
             return 1
         fi
     fi
 
     # Check for static files
     if [ ! -d "$dir/static" ]; then
-        print_warning "Static files directory not found"
+        log "WARN" "Static files directory not found"
     fi
 
     # Verify no external library dependencies (Linux)
     if [ "$PLATFORM" = "linux" ] && command -v ldd &> /dev/null; then
-        print_info "Checking library dependencies..."
+        log "INFO" "Checking library dependencies..."
         local exe_path="$dir/${APP_NAME}"
         if [ -f "$exe_path" ]; then
             ldd "$exe_path" 2>/dev/null | grep -v "=> /" | grep -v "statically linked" || true
         fi
     fi
 
-    print_status "Verification complete"
+    log "DIST" "Verification complete"
 }
 
 # Clean distribution directory
 clean_dist() {
-    print_step "Cleaning distribution directory..."
+    log "STEP" "Cleaning distribution directory..."
 
     if [ -d "$DIST_DIR" ]; then
         rm -rf "$DIST_DIR"
-        print_status "Cleaned $DIST_DIR"
+        log "DIST" "Cleaned $DIST_DIR"
     else
-        print_status "$DIST_DIR already clean"
+        log "DIST" "$DIST_DIR already clean"
     fi
 }
 
 # Show help
 show_help() {
-    echo "Usage: $0 [OPTION]"
-    echo ""
-    echo "Cross-Platform Distribution Build Script"
-    echo ""
-    echo "Options:"
-    echo "  build              Build and create package for current platform"
-    echo "  build-release     Build release version and package (default)"
-    echo "  build-debug       Build debug version and package"
-    echo "  build-frontend     Build frontend only"
-    echo "  build-rust        Build Rust only"
-    echo "  verify            Verify self-contained package"
-    echo "  clean             Clean distribution directory"
-    echo "  cross-setup      Show cross-compilation setup info"
-    echo "  all              Build for all platforms (current platform only)"
-    echo "  help, -h         Show this help message"
-    echo ""
-    echo "Environment Variables:"
-    echo "  BUILD_TYPE        Override build type (release|debug)"
-    echo ""
-    echo "Examples:"
-    echo "  $0 build-release  # Build release package (default)"
-    echo "  $0 build-debug     # Build debug package"
-    echo "  $0 verify          # Verify package"
-    echo "  $0 clean           # Clean dist directory"
-    echo ""
-    echo "Note: Full cross-platform builds (Windows/macOS/Linux) require"
-    echo "      building on each platform or using CI/CD like GitHub Actions."
+    log "INFO" "Usage: $0 [OPTION]"
+    log "INFO" ""
+    log "INFO" "Cross-Platform Distribution Build Script"
+    log "INFO" ""
+    log "INFO" "Options:"
+    log "INFO" "  build              Build and create package for current platform"
+    log "INFO" "  build-release     Build release version and package (default)"
+    log "INFO" "  build-debug       Build debug version and package"
+    log "INFO" "  build-frontend     Build frontend only"
+    log "INFO" "  build-rust        Build Rust only"
+    log "INFO" "  verify            Verify self-contained package"
+    log "INFO" "  clean             Clean distribution directory"
+    log "INFO" "  cross-setup      Show cross-compilation setup info"
+    log "INFO" "  all              Build for all platforms (current platform only)"
+    log "INFO" "  help, -h         Show this help message"
+    log "INFO" ""
+    log "INFO" "Environment Variables:"
+    log "INFO" "  BUILD_TYPE        Override build type (release|debug)"
+    log "INFO" ""
+    log "INFO" "Examples:"
+    log "INFO" "  $0 build-release  # Build release package (default)"
+    log "INFO" "  $0 build-debug     # Build debug package"
+    log "INFO" "  $0 verify          # Verify package"
+    log "INFO" "  $0 clean           # Clean dist directory"
+    log "INFO" ""
+    log "INFO" "Note: Full cross-platform builds (Windows/macOS/Linux) require"
+    log "INFO" "      building on each platform or using CI/CD like GitHub Actions."
 }
 
 # Main function
 main() {
-    echo "========================================"
-    echo "Cross-Platform Distribution Builder"
-    echo "========================================"
-    echo ""
+    log "INFO" "========================================"
+    log "INFO" "Cross-Platform Distribution Builder"
+    log "INFO" "========================================"
 
     # Detect platform and architecture
     detect_platform
@@ -484,12 +515,10 @@ main() {
     read_config
 
     # Show header
-    echo ""
-    echo "----------------------------------------"
-    echo "Building: $APP_NAME v$APP_VERSION"
-    echo "Platform: $PLATFORM-$ARCH"
-    echo "----------------------------------------"
-    echo ""
+    log "INFO" "----------------------------------------"
+    log "INFO" "Building: $APP_NAME v$APP_VERSION"
+    log "INFO" "Platform: $PLATFORM-$ARCH"
+    log "INFO" "----------------------------------------"
 
     # Process command line arguments
     case "${1:-build-release}" in
@@ -529,11 +558,14 @@ main() {
             show_help
             ;;
         *)
-            print_error "Unknown option: $1"
+            log "ERROR" "Unknown option: $1"
             show_help
             exit 1
             ;;
     esac
+    
+    local total_elapsed=$(( $(date +%s%N)/1000000 - DIST_START_TIME_MS ))
+    log "INFO" "Distribution build process completed! Total duration: ${total_elapsed}ms"
 }
 
 # Run main with all arguments

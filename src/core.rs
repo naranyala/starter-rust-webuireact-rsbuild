@@ -1,11 +1,13 @@
-use log::{info, LevelFilter};
 use rusqlite::Connection;
 use serde::Deserialize;
 use std::env;
 use std::fs;
-use std::io::Write;
 use std::path::Path;
 use std::sync::{Arc, Mutex};
+use tracing::{info, Level};
+use tracing_appender::non_blocking::WorkerGuard;
+use tracing_subscriber::{fmt, EnvFilter, Layer};
+use tracing_subscriber::prelude::__tracing_subscriber_SubscriberExt;
 
 // Consolidated core functionality
 // Combines: config, logging, database, and other infrastructure modules
@@ -147,76 +149,44 @@ impl AppConfig {
     }
 }
 
-pub struct Logger;
-
-impl Logger {
-    pub fn new() -> Self {
-        Self
-    }
-}
-
-impl log::Log for Logger {
-    fn enabled(&self, metadata: &log::Metadata) -> bool {
-        metadata.level() <= log::max_level() && metadata.level() <= log::STATIC_MAX_LEVEL
-    }
-
-    fn log(&self, record: &log::Record) {
-        if self.enabled(record.metadata()) {
-            let timestamp = chrono::Local::now().format("%Y-%m-%d %H:%M:%S%.3f");
-            let level = record.level();
-            let target = record.target();
-            let message = record.args();
-
-            // Print to console
-            println!("[{}] {} [{}] {}", timestamp, level, target, message);
-
-            // Write to log file
-            if let Ok(mut file) = std::fs::OpenOptions::new()
-                .create(true)
-                .append(true)
-                .open("application.log")
-            {
-                writeln!(file, "[{}] {} [{}] {}", timestamp, level, target, message).ok();
-            }
-        }
-    }
-
-    fn flush(&self) {}
-}
+// Global guard to ensure the tracing subscriber stays active
+static mut LOG_GUARD: Option<WorkerGuard> = None;
 
 pub fn init_logging_with_config(
     log_file: Option<&str>,
     log_level: &str,
     _append: bool,
 ) -> Result<(), Box<dyn std::error::Error>> {
-    log::set_boxed_logger(Box::new(Logger::new()))?;
-
-    // Determine log level from config or environment variable
-    let level = if let Ok(env_level) = std::env::var("RUST_LOG").as_deref() {
-        match env_level {
-            "debug" => LevelFilter::Debug,
-            "info" => LevelFilter::Info,
-            "warn" => LevelFilter::Warn,
-            "error" => LevelFilter::Error,
-            _ => LevelFilter::Info,
-        }
-    } else {
-        match log_level {
-            "debug" => LevelFilter::Debug,
-            "info" => LevelFilter::Info,
-            "warn" => LevelFilter::Warn,
-            "error" => LevelFilter::Error,
-            _ => LevelFilter::Info,
-        }
+    // Configure log level
+    let level = match log_level {
+        "trace" => Level::TRACE,
+        "debug" => Level::DEBUG,
+        "info" => Level::INFO,
+        "warn" => Level::WARN,
+        "error" => Level::ERROR,
+        _ => Level::INFO,
     };
 
-    log::set_max_level(level);
+    // Set up environment filter
+    let env_filter = EnvFilter::try_from_default_env()
+        .unwrap_or_else(|_| EnvFilter::new(format!("rustwebui_app={}", log_level)));
 
-    if let Some(file_path) = log_file {
-        if !file_path.is_empty() {
-            println!("Logging to file: {}", file_path);
-        }
-    }
+    // Create subscriber with console logging
+    let subscriber = tracing_subscriber::registry()
+        .with(env_filter)
+        .with(
+            fmt::layer()
+                .with_ansi(true) // ANSI colors for console
+                .with_target(true)
+                .with_line_number(true)
+                .boxed()
+        );
+
+    // Set the global subscriber
+    tracing::subscriber::set_global_default(subscriber)
+        .map_err(|err| format!("Failed to set tracing subscriber: {}", err))?;
+
+    info!(message = "Logging system initialized", log_level = log_level, log_file = log_file.unwrap_or("none"));
 
     Ok(())
 }
@@ -231,6 +201,23 @@ impl Database {
 
         // Enable WAL mode for better concurrency
         conn.execute_batch("PRAGMA journal_mode=WAL;")?;
+
+        // Emit database connection event
+        if let Ok(bus) = std::panic::catch_unwind(|| crate::event_bus::EventBus::global()) {
+            if let Err(e) = futures::executor::block_on(bus.emit_simple(
+                &crate::event_bus::AppEventType::DatabaseOperation.to_string(),
+                serde_json::json!({
+                    "operation": "connect",
+                    "database": db_path,
+                    "timestamp": std::time::SystemTime::now()
+                        .duration_since(std::time::UNIX_EPOCH)
+                        .unwrap()
+                        .as_millis() as u64
+                }),
+            )) {
+                eprintln!("Failed to emit database connection event: {}", e);
+            }
+        }
 
         Ok(Database {
             connection: Arc::new(Mutex::new(conn)),
@@ -249,6 +236,23 @@ impl Database {
             )",
             [],
         )?;
+
+        // Emit database initialization event
+        if let Ok(bus) = std::panic::catch_unwind(|| crate::event_bus::EventBus::global()) {
+            if let Err(e) = futures::executor::block_on(bus.emit_simple(
+                &crate::event_bus::AppEventType::DatabaseOperation.to_string(),
+                serde_json::json!({
+                    "operation": "init_schema",
+                    "table": "users",
+                    "timestamp": std::time::SystemTime::now()
+                        .duration_since(std::time::UNIX_EPOCH)
+                        .unwrap()
+                        .as_millis() as u64
+                }),
+            )) {
+                eprintln!("Failed to emit database initialization event: {}", e);
+            }
+        }
 
         info!("Database schema initialized");
         Ok(())
@@ -275,9 +279,116 @@ impl Database {
                 )?;
             }
 
+            // Emit sample data insertion event
+            if let Ok(bus) = std::panic::catch_unwind(|| crate::event_bus::EventBus::global()) {
+                if let Err(e) = futures::executor::block_on(bus.emit_simple(
+                    &crate::event_bus::AppEventType::DataChanged.to_string(),
+                    serde_json::json!({
+                        "operation": "insert_sample_data",
+                        "table": "users",
+                        "count": sample_users.len(),
+                        "timestamp": std::time::SystemTime::now()
+                            .duration_since(std::time::UNIX_EPOCH)
+                            .unwrap()
+                            .as_millis() as u64
+                    }),
+                )) {
+                    eprintln!("Failed to emit sample data insertion event: {}", e);
+                }
+            }
+
             info!("Sample data inserted into database");
+        } else {
+            info!("Sample data already exists, skipping insertion");
         }
 
         Ok(())
+    }
+
+    // Method to get all users with event emission
+    pub fn get_all_users(&self) -> Result<Vec<serde_json::Value>, Box<dyn std::error::Error>> {
+        let conn = self.connection.lock().unwrap();
+
+        let mut stmt = conn.prepare("SELECT id, name, email, role FROM users")?;
+        let user_iter = stmt.query_map([], |row| {
+            Ok((
+                row.get(0)?,
+                row.get(1)?,
+                row.get(2)?,
+                row.get(3)?,
+            ))
+        })?;
+
+        let mut users = Vec::new();
+        for user_result in user_iter {
+            let (id, name, email, role): (i32, String, String, String) = user_result?;
+            users.push(serde_json::json!({
+                "id": id,
+                "name": name,
+                "email": email,
+                "role": role
+            }));
+        }
+
+        // Emit get users event
+        if let Ok(bus) = std::panic::catch_unwind(|| crate::event_bus::EventBus::global()) {
+            if let Err(e) = futures::executor::block_on(bus.emit_simple(
+                &crate::event_bus::AppEventType::DatabaseOperation.to_string(),
+                serde_json::json!({
+                    "operation": "get_users",
+                    "count": users.len(),
+                    "timestamp": std::time::SystemTime::now()
+                        .duration_since(std::time::UNIX_EPOCH)
+                        .unwrap()
+                        .as_millis() as u64
+                }),
+            )) {
+                eprintln!("Failed to emit get users event: {}", e);
+            }
+        }
+
+        Ok(users)
+    }
+
+    // Method to get database stats with event emission
+    pub fn get_db_stats(&self) -> Result<serde_json::Value, Box<dyn std::error::Error>> {
+        let conn = self.connection.lock().unwrap();
+
+        // Get user count
+        let user_count: i64 = conn.query_row("SELECT COUNT(*) FROM users", [], |row| row.get(0))?;
+
+        // Get table names
+        let mut stmt = conn.prepare("SELECT name FROM sqlite_master WHERE type='table'")?;
+        let table_names: Vec<String> = stmt
+            .query_map([], |row| row.get(0))?
+            .collect::<std::result::Result<Vec<String>, _>>()?;
+
+        let stats = serde_json::json!({
+            "users": user_count,
+            "tables": table_names,
+            "timestamp": std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap()
+                .as_millis() as u64
+        });
+
+        // Emit get stats event
+        if let Ok(bus) = std::panic::catch_unwind(|| crate::event_bus::EventBus::global()) {
+            if let Err(e) = futures::executor::block_on(bus.emit_simple(
+                &crate::event_bus::AppEventType::DatabaseOperation.to_string(),
+                serde_json::json!({
+                    "operation": "get_stats",
+                    "stats": &stats,
+                    "timestamp": std::time::SystemTime::now()
+                        .duration_since(std::time::UNIX_EPOCH)
+                        .unwrap()
+                        .as_millis() as u64
+                }),
+            )) {
+                eprintln!("Failed to emit get stats event: {}", e);
+            }
+        }
+
+        Ok(stats)
     }
 }

@@ -1,41 +1,48 @@
 import React from 'react';
 import ReactDOM from 'react-dom/client';
 import App from './use-cases/App';
+import { ErrorBoundary } from './components/ErrorBoundary';
+import { initGlobalErrorHandlers } from './utils/global-error-handler';
 
-// Add error handling for debugging
-console.log('=== React Application Starting ===');
-console.log('Current URL:', window.location.href);
-console.log('Document readyState:', document.readyState);
+initGlobalErrorHandlers();
 
-try {
-  const rootElement = document.getElementById('app');
-  console.log('Root element found:', rootElement);
-  
-  if (rootElement) {
-    const root = ReactDOM.createRoot(rootElement);
-    console.log('React root created');
-    
-    root.render(
-      <React.StrictMode>
-        <App />
-      </React.StrictMode>
-    );
-    console.log('React render called');
-  } else {
-    console.error('Root element #app not found!');
-    document.body.innerHTML = '<div style="padding: 20px; color: red;">Error: Root element #app not found</div>';
-  }
-} catch (error) {
-  console.error('Fatal error mounting React:', error);
-  document.body.innerHTML = `<div style="padding: 20px; color: red;">Error: ${error.message}</div>`;
-}
+const TestErrorButton = () => {
+  const triggerError = () => {
+    throw new Error('Test error triggered by button!');
+  };
 
-// Global error handler
-window.onerror = function(msg, url, lineNo, columnNo, error) {
-  console.error('Global error:', msg, 'at', url, lineNo, columnNo, error);
-  return false;
+  return (
+    <button
+      onClick={triggerError}
+      style={{
+        position: 'fixed',
+        bottom: '20px',
+        right: '20px',
+        padding: '10px 20px',
+        backgroundColor: '#dc2626',
+        color: 'white',
+        border: 'none',
+        borderRadius: '6px',
+        cursor: 'pointer',
+        zIndex: 9999,
+        fontSize: '14px',
+      }}
+    >
+      🧪 Test Error
+    </button>
+  );
 };
 
-window.addEventListener('unhandledrejection', function(event) {
-  console.error('Unhandled promise rejection:', event.reason);
-});
+const rootElement = document.getElementById('app');
+if (rootElement) {
+  const root = ReactDOM.createRoot(rootElement);
+  root.render(
+    <React.StrictMode>
+      <ErrorBoundary>
+        <App />
+        <TestErrorButton />
+      </ErrorBoundary>
+    </React.StrictMode>
+  );
+  console.log('React rendered successfully');
+}
