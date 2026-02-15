@@ -5,7 +5,7 @@ import path from 'node:path';
 export default defineConfig({
   source: {
     entry: {
-      index: './src/main.tsx',
+      index: './src/views/main.tsx',
     },
   },
   resolve: {

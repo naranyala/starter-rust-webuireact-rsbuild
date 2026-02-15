@@ -4,7 +4,7 @@ import path from 'node:path';
 
 export default defineConfig({
   entry: {
-    index: './src/main.tsx',
+    index: './src/views/main.tsx',
   },
   resolve: {
     extensions: ['.tsx', '.ts', '.js', '.json'],

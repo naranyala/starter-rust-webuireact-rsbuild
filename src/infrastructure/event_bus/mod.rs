@@ -1,7 +1,7 @@
 use std::collections::HashMap;
 use std::sync::Arc;
 use tokio::sync::{broadcast, RwLock};
-use tracing::{debug, error, info};
+use tracing::{debug, error};
 use serde::{Deserialize, Serialize};
 use uuid::Uuid;
 
@@ -10,7 +10,6 @@ pub struct Event {
     pub id: String,
     pub name: String,
     pub payload: serde_json::Value,
-    pub timestamp: u64,
     pub source: String,
 }
 
@@ -20,10 +19,6 @@ impl Event {
             id: Uuid::new_v4().to_string(),
             name,
             payload,
-            timestamp: std::time::SystemTime::now()
-                .duration_since(std::time::UNIX_EPOCH)
-                .unwrap()
-                .as_millis() as u64,
             source,
         }
     }
@@ -34,6 +29,7 @@ pub type EventHandler = Arc<dyn Fn(&Event) -> Result<(), Box<dyn std::error::Err
 pub struct EventBus {
     subscribers: Arc<RwLock<HashMap<String, Vec<EventHandler>>>>,
     broadcast_sender: broadcast::Sender<Event>,
+    #[allow(dead_code)]
     broadcast_receiver: broadcast::Receiver<Event>,
 }
 
@@ -47,6 +43,7 @@ impl EventBus {
         }
     }
 
+    #[allow(dead_code)]
     pub fn subscribe<F>(&self, event_name: &str, handler: F) -> Result<(), Box<dyn std::error::Error>>
     where
         F: Fn(&Event) -> Result<(), Box<dyn std::error::Error + Send + Sync>> + Send + Sync + 'static,
@@ -86,6 +83,7 @@ impl EventBus {
         self.broadcast_sender.subscribe()
     }
 
+    #[allow(dead_code)]
     pub async fn register_event_handler<F>(&self, event_name: &str, handler: F) -> Result<(), Box<dyn std::error::Error>>
     where
         F: Fn(&Event) -> Result<(), Box<dyn std::error::Error + Send + Sync>> + Send + Sync + 'static,
@@ -105,6 +103,7 @@ impl EventBus {
             .clone()
     }
 
+    #[allow(dead_code)]
     pub fn is_initialized() -> bool {
         EVENT_BUS_INSTANCE.get().is_some()
     }
@@ -121,6 +120,7 @@ pub enum AppEventType {
     SystemHealthCheck,
     FrontendConnected,
     FrontendDisconnected,
+    WindowStateChanged,
 }
 
 impl ToString for AppEventType {
@@ -134,17 +134,20 @@ impl ToString for AppEventType {
             AppEventType::SystemHealthCheck => "system.health.check".to_string(),
             AppEventType::FrontendConnected => "frontend.connected".to_string(),
             AppEventType::FrontendDisconnected => "frontend.disconnected".to_string(),
+            AppEventType::WindowStateChanged => "window.state.changed".to_string(),
         }
     }
 }
 
 // Middleware for event processing
+#[allow(dead_code)]
 pub struct EventMiddleware {
     pub name: String,
     pub handler: Arc<dyn Fn(&Event) -> Result<Event, Box<dyn std::error::Error + Send + Sync>> + Send + Sync>,
 }
 
 impl EventMiddleware {
+    #[allow(dead_code)]
     pub fn new<F>(name: String, handler: F) -> Self
     where
         F: Fn(&Event) -> Result<Event, Box<dyn std::error::Error + Send + Sync>> + Send + Sync + 'static,

@@ -1,5 +1,6 @@
 import React, { useState, useEffect, useCallback } from 'react';
-import { EventBus, AppEventType, useEventBus, useEventEmitter } from '../event-bus';
+import { EventBus, AppEventType, useEventBus, useEventEmitter } from '../models/event-bus';
+import { windowManager, WindowInfo } from '../services/window-manager';
 
 declare global {
   interface Window {
@@ -17,21 +18,13 @@ declare global {
   }
 }
 
-// Use window.Logger or create a fallback
+// Use window.Logger or create a fallback (Logger from utils.js already includes level prefix)
 const Logger = window.Logger || {
-  info: (msg: string, meta?: any) => console.log('[INFO]', msg, meta),
-  warn: (msg: string, meta?: any) => console.warn('[WARN]', msg, meta),
-  error: (msg: string, meta?: any) => console.error('[ERROR]', msg, meta),
-  debug: (msg: string, meta?: any) => console.debug('[DEBUG]', msg, meta),
+  info: (msg: string, meta?: any) => console.log(msg, meta),
+  warn: (msg: string, meta?: any) => console.warn(msg, meta),
+  error: (msg: string, meta?: any) => console.error(msg, meta),
+  debug: (msg: string, meta?: any) => console.debug(msg, meta),
 };
-
-interface WindowInfo {
-  id: string;
-  title: string;
-  minimized: boolean;
-  maximized?: boolean;
-  winboxInstance: any;
-}
 
 interface User {
   id: number;
@@ -251,106 +244,57 @@ const App: React.FC = () => {
       return;
     }
 
-    setActiveWindows(prev => {
-      const existingWindow = prev.find(w => w.title === title);
-      if (existingWindow) {
-        if (existingWindow.minimized) {
-          existingWindow.winboxInstance.restore();
-          existingWindow.minimized = false;
-        }
-        existingWindow.winboxInstance.focus();
-        return prev;
+    const windowId = 'win-' + Date.now();
+    let winboxInstance: any;
+
+    winboxInstance = new window.WinBox({
+      title: title,
+      background: '#1e293b',
+      border: 4,
+      width: 'calc(100% - 200px)',
+      height: '100%',
+      x: '200px',
+      y: '0',
+      minwidth: '300px',
+      minheight: '300px',
+      max: true,
+      min: true,
+      mount: document.createElement('div'),
+      oncreate: function() {
+        this.body.innerHTML = content;
       }
-
-      Logger.info('Opening window', { windowTitle: title });
-
-      const windowId = 'win-' + Date.now();
-      let winboxInstance: any;
-
-      winboxInstance = new window.WinBox({
-        title: title,
-        background: '#1e293b',
-        border: 4,
-        width: 'calc(100% - 200px)',
-        height: '100%',
-        x: '200px',
-        y: '0',
-        minwidth: '300px',
-        minheight: '300px',
-        max: true,
-        min: true,
-        mount: document.createElement('div'),
-        oncreate: function() {
-          this.body.innerHTML = content;
-        },
-        onminimize: function() {
-          setActiveWindows(prev => prev.map(w => 
-            w.id === windowId ? { ...w, minimized: true } : w
-          ));
-        },
-        onrestore: function() {
-          setActiveWindows(prev => prev.map(w => 
-            w.id === windowId ? { ...w, minimized: false, maximized: false } : w
-          ));
-        },
-        onmaximize: function() {
-          const availableWidth = window.innerWidth - 200;
-          const availableHeight = window.innerHeight;
-          
-          this.resize(availableWidth, availableHeight);
-          this.move(200, 0);
-          
-          setActiveWindows(prev => prev.map(w => 
-            w.id === windowId ? { ...w, maximized: true } : w
-          ));
-        },
-        onclose: function() {
-          setActiveWindows(prev => prev.filter(w => w.id !== windowId));
-        }
-      });
-
-      const windowInfo: WindowInfo = {
-        id: windowId,
-        title: title,
-        minimized: false,
-        maximized: false,
-        winboxInstance: winboxInstance
-      };
-      
-      return [...prev, windowInfo];
     });
+
+    // Register the window with the window manager
+    windowManager.registerWindow(windowId, title, winboxInstance);
+    
+    // Update the local state to reflect current windows
+    setActiveWindows([...windowManager.getAllWindows()]);
   };
 
   const focusWindow = (windowInfo: WindowInfo) => {
     if (windowInfo.minimized) {
       windowInfo.winboxInstance.restore();
-      setActiveWindows(prev => prev.map(w => 
-        w.id === windowInfo.id ? { ...w, minimized: false } : w
-      ));
     }
     windowInfo.winboxInstance.focus();
   };
 
   const closeWindow = (windowInfo: WindowInfo) => {
     windowInfo.winboxInstance.close();
-    setActiveWindows(prev => prev.filter(w => w.id !== windowInfo.id));
   };
 
   const closeAllWindows = () => {
     activeWindows.forEach(windowInfo => {
       windowInfo.winboxInstance.close();
     });
-    setActiveWindows([]);
   };
 
   const hideAllWindows = () => {
-    setActiveWindows(prev => prev.map(w => {
-      if (!w.minimized) {
-        w.winboxInstance.minimize();
-        return { ...w, minimized: true, maximized: false };
+    activeWindows.forEach(windowInfo => {
+      if (!windowInfo.minimized) {
+        windowInfo.winboxInstance.minimize();
       }
-      return w;
-    }));
+    });
     Logger.info('All windows minimized - showing main view');
   };
 
@@ -370,23 +314,79 @@ const App: React.FC = () => {
   // Event emitter hook
   const emitEvent = useEventEmitter();
 
+  const emitEvent = useEventEmitter();
+
+  // WebSocket status state
+  const [wsStatus, setWsStatus] = useState<'connecting' | 'connected' | 'disconnected'>('connecting');
+  const [expanded, setExpanded] = useState(false);
+
   // Subscribe to backend connected event
   useEventBus(AppEventType.BACKEND_CONNECTED, (event) => {
     Logger.info('Backend connected', event.payload);
-    emitEvent(AppEventType.UI_READY, { 
-      timestamp: Date.now(),
-      message: 'Frontend UI is ready and listening'
-    });
+    setWsStatus('connected');
+  });
+
+  // Subscribe to UI ready event from backend
+  useEventBus(AppEventType.UI_READY, (event) => {
+    Logger.info('UI ready event received from backend', event.payload);
+    setWsStatus('connected');
   });
 
   useEffect(() => {
-    Logger.info('Application initialized');
+    const handleDisconnected = () => setWsStatus('disconnected');
+    const handleStateChange = (e: CustomEvent) => {
+      const { newState } = e.detail;
+      if (newState === 'open' || newState === 'ready') setWsStatus('connected');
+      else if (newState === 'connecting' || newState === 'reconnecting') setWsStatus('connecting');
+      else if (newState === 'closed' || newState === 'error') setWsStatus('disconnected');
+    };
+
+    window.addEventListener('webui_disconnected', handleDisconnected);
+    window.addEventListener('webui_connection_state_change', handleStateChange as EventListener);
+
+    // Check initial state periodically to ensure accurate status
+    const checkInitialStatus = () => {
+      if (window.WebUI?.isConnected()) {
+        setWsStatus('connected');
+      } else {
+        // If not connected, check the connection state
+        const stateInfo = window.WebUI?.getConnectionState();
+        if (stateInfo) {
+          if (stateInfo.state === 'connecting' || stateInfo.state === 'reconnecting') {
+            setWsStatus('connecting');
+          } else {
+            setWsStatus('disconnected');
+          }
+        }
+      }
+    };
+
+    checkInitialStatus();
     
+    // Set up periodic status check
+    const statusCheckInterval = setInterval(checkInitialStatus, 2000);
+
+    return () => {
+      window.removeEventListener('webui_disconnected', handleDisconnected);
+      window.removeEventListener('webui_connection_state_change', handleStateChange as EventListener);
+      clearInterval(statusCheckInterval);
+    };
+  }, []);
+
+  useEffect(() => {
+    Logger.info('Application initialized');
+
     // Emit app start event
-    emitEvent(AppEventType.APP_START, { 
+    emitEvent(AppEventType.APP_START, {
       timestamp: Date.now(),
       platform: 'frontend',
       userAgent: navigator.userAgent
+    });
+
+    // Emit UI ready event to signal that frontend is ready
+    emitEvent(AppEventType.UI_READY, {
+      timestamp: Date.now(),
+      message: 'Frontend UI is ready and listening'
     });
 
     window.refreshUsers = () => {
@@ -418,7 +418,7 @@ const App: React.FC = () => {
         setDbUsers(response.data || []);
         Logger.info('Users loaded from database', { count: response.data?.length || 0 });
         updateSQLiteTable();
-        
+
         // Emit data changed event
         emitEvent(AppEventType.DATA_CHANGED, {
           table: 'users',
@@ -439,17 +439,29 @@ const App: React.FC = () => {
       }
     }) as EventListener;
 
+    // Function to update active windows state based on window manager
+    const updateActiveWindows = () => {
+      setActiveWindows([...windowManager.getAllWindows()]);
+    };
+
+    // Listen for window manager events to update state
+    const intervalId = setInterval(updateActiveWindows, 100); // Update every 100ms
+
     window.addEventListener('db_response', handleDbResponse);
     window.addEventListener('stats_response', handleStatsResponse);
     window.addEventListener('resize', handleWindowResize);
 
+    // Initial update
+    updateActiveWindows();
+
     return () => {
+      clearInterval(intervalId);
       window.removeEventListener('db_response', handleDbResponse);
       window.removeEventListener('stats_response', handleStatsResponse);
       window.removeEventListener('resize', handleWindowResize);
-      
+
       // Emit app shutdown event
-      emitEvent(AppEventType.APP_SHUTDOWN, { 
+      emitEvent(AppEventType.APP_SHUTDOWN, {
         timestamp: Date.now(),
         reason: 'component_unmount'
       });
@@ -657,6 +669,11 @@ const App: React.FC = () => {
           display: flex;
           flex-direction: column;
           overflow: hidden;
+        }
+
+        .main-container .main-content {
+          flex: 1;
+          overflow-y: auto;
         }
 
         .header {
@@ -899,6 +916,72 @@ const App: React.FC = () => {
               </div>
             </section>
           </main>
+
+          {/* Collapsible WebSocket Status Panel */}
+          <div
+            className="ws-status-panel"
+            style={{
+              backgroundColor: wsStatus === 'connected' ? '#166534' : wsStatus === 'connecting' ? '#854d0e' : '#991b1b',
+              borderTop: `2px solid ${wsStatus === 'connected' ? '#22c55e' : wsStatus === 'connecting' ? '#eab308' : '#ef4444'}`,
+              flexShrink: 0,
+              overflow: 'hidden',
+            }}
+          >
+            <div
+              onClick={() => setExpanded(!expanded)}
+              style={{
+                height: expanded ? 'auto' : '20px',
+                minHeight: '20px',
+                display: 'flex',
+                alignItems: 'center',
+                justifyContent: 'space-between',
+                padding: '4px 8px',
+                cursor: 'pointer',
+                fontSize: '11px',
+                fontFamily: 'monospace',
+                color: wsStatus === 'connected' ? '#86efac' : wsStatus === 'connecting' ? '#fde047' : '#fca5a5',
+              }}
+            >
+              <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
+                <span>{wsStatus === 'connected' ? '●' : wsStatus === 'connecting' ? '◐' : '○'}</span>
+                <span>WS: {wsStatus}</span>
+              </div>
+              <span style={{ fontSize: '12px' }}>{expanded ? '▲' : '▼'}</span>
+            </div>
+            
+            {expanded && (
+              <div
+                style={{
+                  padding: '8px',
+                  borderTop: '1px solid rgba(255,255,255,0.1)',
+                  fontSize: '10px',
+                  fontFamily: 'monospace',
+                  color: '#cbd5e1',
+                  backgroundColor: 'rgba(0,0,0,0.2)',
+                }}
+              >
+                <div style={{ marginBottom: '4px' }}>
+                  <strong>Status:</strong> {wsStatus.toUpperCase()}
+                </div>
+                <div style={{ marginBottom: '4px' }}>
+                  <strong>URL:</strong> {window.location.protocol === 'https:' ? 'wss://' : 'ws://'}{window.location.host}/_webui_ws_connect
+                </div>
+                <div style={{ marginBottom: '4px' }}>
+                  <strong>Connection State:</strong> {window.WebUI?.getConnectionState()?.state || 'unknown'}
+                </div>
+                <div style={{ marginBottom: '4px' }}>
+                  <strong>Ready State:</strong> {window.WebUI?.getReadyState() !== undefined ? 
+                    ['CONNECTING', 'OPEN', 'CLOSING', 'CLOSED'][window.WebUI.getReadyState()] || 'UNINSTANTIATED' : 'unknown'}
+                </div>
+                <div style={{ marginBottom: '4px' }}>
+                  <strong>Reconnect Attempts:</strong> {window.WebUI?.getConnectionState()?.reconnectAttempts || 0}
+                </div>
+                <div>
+                  <strong>Last Error:</strong> {window.WebUI?.getLastError()?.message || 'None'}
+                </div>
+              </div>
+            )}
+          </div>
         </div>
       </div>
     </>

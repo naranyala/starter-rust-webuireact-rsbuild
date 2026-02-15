@@ -86,7 +86,10 @@ export enum AppEventType {
   SYSTEM_HEALTH_CHECK = 'system.health.check',
   BACKEND_CONNECTED = 'backend.connected',
   BACKEND_DISCONNECTED = 'backend.disconnected',
+  BACKEND_CONNECTION_STATE = 'backend.connection_state',
+  BACKEND_ERROR = 'backend.error',
   APP_START = 'app.start',
   APP_SHUTDOWN = 'app.shutdown',
   UI_READY = 'ui.ready',
+  WINDOW_STATE_CHANGED = 'window.state.changed',
 }

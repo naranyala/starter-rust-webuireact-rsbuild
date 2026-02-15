@@ -2,7 +2,7 @@ use lazy_static::lazy_static;
 use tracing::{info, error};
 use std::sync::{Arc, Mutex};
 use webui_rs::webui;
-use crate::event_bus::{EventBus, AppEventType};
+use crate::infrastructure::event_bus::{EventBus, AppEventType};
 use tokio;
 
 // Consolidated handlers module combining all previous handler modules
@@ -10,11 +10,11 @@ use tokio;
 
 // Shared database reference using lazy static
 lazy_static! {
-    pub static ref DATABASE: Arc<Mutex<Option<Arc<crate::core::Database>>>> =
+    pub static ref DATABASE: Arc<Mutex<Option<Arc<crate::model::core::Database>>>> =
         Arc::new(Mutex::new(None));
 }
 
-pub fn init_database(db: Arc<crate::core::Database>) {
+pub fn init_database(db: Arc<crate::model::core::Database>) {
     let mut db_guard = DATABASE.lock().unwrap();
     *db_guard = Some(db);
 }
@@ -31,11 +31,7 @@ pub fn setup_ui_handlers(window: &mut webui::Window) {
                 if let Err(e) = bus_clone.emit_simple(
                     &AppEventType::CounterIncremented.to_string(),
                     serde_json::json!({
-                        "value": 1,
-                        "timestamp": std::time::SystemTime::now()
-                            .duration_since(std::time::UNIX_EPOCH)
-                            .unwrap()
-                            .as_millis() as u64
+                        "value": 1
                     }),
                 ).await {
                     error!("Failed to emit counter incremented event: {}", e);
@@ -56,12 +52,7 @@ pub fn setup_ui_handlers(window: &mut webui::Window) {
             tokio::spawn(async move {
                 if let Err(e) = bus_clone.emit_simple(
                     "counter.reset",
-                    serde_json::json!({
-                        "timestamp": std::time::SystemTime::now()
-                            .duration_since(std::time::UNIX_EPOCH)
-                            .unwrap()
-                            .as_millis() as u64
-                    }),
+                    serde_json::json!({}),
                 ).await {
                     error!("Failed to emit counter reset event: {}", e);
                 }
@@ -82,11 +73,7 @@ pub fn setup_counter_handlers(window: &mut webui::Window) {
             if let Err(e) = futures::executor::block_on(bus.emit_simple(
                 "counter.value.request",
                 serde_json::json!({
-                    "request_id": uuid::Uuid::new_v4().to_string(),
-                    "timestamp": std::time::SystemTime::now()
-                        .duration_since(std::time::UNIX_EPOCH)
-                        .unwrap()
-                        .as_millis() as u64
+                    "request_id": uuid::Uuid::new_v4().to_string()
                 }),
             )) {
                 error!("Failed to emit counter value request event: {}", e);
@@ -136,11 +123,7 @@ pub fn setup_db_handlers(window: &mut webui::Window) {
                                 &AppEventType::DatabaseOperation.to_string(),
                                 serde_json::json!({
                                     "operation": "get_users_success",
-                                    "count": users.len(),
-                                    "timestamp": std::time::SystemTime::now()
-                                        .duration_since(std::time::UNIX_EPOCH)
-                                        .unwrap()
-                                        .as_millis() as u64
+                                    "count": users.len()
                                 }),
                             )) {
                                 error!("Failed to emit database operation event: {}", e);
@@ -162,17 +145,13 @@ pub fn setup_db_handlers(window: &mut webui::Window) {
                         
                         // Emit error event through event bus
                         if let Ok(bus) = std::panic::catch_unwind(|| EventBus::global()) {
-                            if let Err(err) = futures::executor::block_on(bus.emit_simple(
-                                &AppEventType::DatabaseOperation.to_string(),
-                                serde_json::json!({
-                                    "operation": "get_users_error",
-                                    "error": e.to_string(),
-                                    "timestamp": std::time::SystemTime::now()
-                                        .duration_since(std::time::UNIX_EPOCH)
-                                        .unwrap()
-                                        .as_millis() as u64
-                                }),
-                            )) {
+                        if let Err(err) = futures::executor::block_on(bus.emit_simple(
+                            &AppEventType::DatabaseOperation.to_string(),
+                            serde_json::json!({
+                                "operation": "get_users_error",
+                                "error": e.to_string()
+                            }),
+                        )) {
                                 error!("Failed to emit database error event: {}", err);
                             }
                         }
@@ -230,11 +209,7 @@ pub fn setup_db_handlers(window: &mut webui::Window) {
                                 "database.stats.response",
                                 serde_json::json!({
                                     "operation": "get_stats_success",
-                                    "stats": &stats,
-                                    "timestamp": std::time::SystemTime::now()
-                                        .duration_since(std::time::UNIX_EPOCH)
-                                        .unwrap()
-                                        .as_millis() as u64
+                                    "stats": &stats
                                 }),
                             )) {
                                 error!("Failed to emit database stats response event: {}", e);
@@ -260,11 +235,7 @@ pub fn setup_db_handlers(window: &mut webui::Window) {
                                 &AppEventType::DatabaseOperation.to_string(),
                                 serde_json::json!({
                                     "operation": "get_stats_error",
-                                    "error": e.to_string(),
-                                    "timestamp": std::time::SystemTime::now()
-                                        .duration_since(std::time::UNIX_EPOCH)
-                                        .unwrap()
-                                        .as_millis() as u64
+                                    "error": e.to_string()
                                 }),
                             )) {
                                 error!("Failed to emit database stats error event: {}", err);
@@ -339,11 +310,7 @@ pub fn setup_sysinfo_handlers(window: &mut webui::Window) {
             if let Err(e) = futures::executor::block_on(bus.emit_simple(
                 &AppEventType::SystemHealthCheck.to_string(),
                 serde_json::json!({
-                    "type": "system_info_request",
-                    "timestamp": std::time::SystemTime::now()
-                        .duration_since(std::time::UNIX_EPOCH)
-                        .unwrap()
-                        .as_millis() as u64
+                    "type": "system_info_request"
                 }),
             )) {
                 error!("Failed to emit system info request event: {}", e);
@@ -363,12 +330,7 @@ pub fn setup_utils_handlers(window: &mut webui::Window) {
         if let Ok(bus) = std::panic::catch_unwind(|| EventBus::global()) {
             if let Err(e) = futures::executor::block_on(bus.emit_simple(
                 "utility.folder.open",
-                serde_json::json!({
-                    "timestamp": std::time::SystemTime::now()
-                        .duration_since(std::time::UNIX_EPOCH)
-                        .unwrap()
-                        .as_millis() as u64
-                }),
+                serde_json::json!({}),
             )) {
                 error!("Failed to emit open folder event: {}", e);
             }
@@ -382,12 +344,7 @@ pub fn setup_utils_handlers(window: &mut webui::Window) {
         if let Ok(bus) = std::panic::catch_unwind(|| EventBus::global()) {
             if let Err(e) = futures::executor::block_on(bus.emit_simple(
                 "utility.images.organize",
-                serde_json::json!({
-                    "timestamp": std::time::SystemTime::now()
-                        .duration_since(std::time::UNIX_EPOCH)
-                        .unwrap()
-                        .as_millis() as u64
-                }),
+                serde_json::json!({}),
             )) {
                 error!("Failed to emit organize images event: {}", e);
             }
@@ -406,12 +363,7 @@ pub fn setup_advanced_handlers(window: &mut webui::Window) {
         if let Ok(bus) = std::panic::catch_unwind(|| EventBus::global()) {
             if let Err(e) = futures::executor::block_on(bus.emit_simple(
                 "advanced.operation",
-                serde_json::json!({
-                    "timestamp": std::time::SystemTime::now()
-                        .duration_since(std::time::UNIX_EPOCH)
-                        .unwrap()
-                        .as_millis() as u64
-                }),
+                serde_json::json!({}),
             )) {
                 error!("Failed to emit advanced operation event: {}", e);
             }
@@ -425,17 +377,12 @@ pub fn setup_enhanced_handlers(window: &mut webui::Window) {
     // Enhanced handlers
     window.bind("enhanced_feature", |_event| {
         info!("Enhanced feature event received");
-        
+
         // Emit event through event bus
         if let Ok(bus) = std::panic::catch_unwind(|| EventBus::global()) {
             if let Err(e) = futures::executor::block_on(bus.emit_simple(
                 "enhanced.feature",
-                serde_json::json!({
-                    "timestamp": std::time::SystemTime::now()
-                        .duration_since(std::time::UNIX_EPOCH)
-                        .unwrap()
-                        .as_millis() as u64
-                }),
+                serde_json::json!({}),
             )) {
                 error!("Failed to emit enhanced feature event: {}", e);
             }
@@ -443,4 +390,33 @@ pub fn setup_enhanced_handlers(window: &mut webui::Window) {
     });
 
     info!("Enhanced handlers registered");
+}
+
+#[allow(dead_code)]
+pub fn setup_window_tracking_handlers(window: &mut webui::Window) {
+    // Window tracking handlers
+    window.bind("window_state_change", |_event| {
+        info!("Window state change event received");
+
+        // For WebUI events, the data is typically passed as JSON in the payload
+        // We'll handle this by expecting the payload to be passed in the event
+        // Since we can't directly access the payload from the event in this way,
+        // we'll log that the event was received and let the WebSocket handle the detailed data
+        
+        info!("Window state change event received - will be handled by WebSocket");
+
+        // Emit event through event bus to notify that a window state change occurred
+        if let Ok(bus) = std::panic::catch_unwind(|| EventBus::global()) {
+            if let Err(e) = futures::executor::block_on(bus.emit_simple(
+                "window.state.change.event",
+                serde_json::json!({
+                    "message": "Window state change event received"
+                }),
+            )) {
+                error!("Failed to emit window state change event: {}", e);
+            }
+        }
+    });
+
+    info!("Window tracking handlers registered");
 }

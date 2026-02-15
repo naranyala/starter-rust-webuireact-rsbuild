@@ -65,7 +65,7 @@ class BuildLogger {
     const color = colors[level.toLowerCase()] || colors.info;
 
     // For console, show a cleaner format
-    const consoleMessage = `${color}[${level.toUpperCase()}] ${rawMessage}${resetColor}`;
+    const consoleMessage = `${color}${rawMessage}${resetColor}`;
     console.log(consoleMessage);
   }
 

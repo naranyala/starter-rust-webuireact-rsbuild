@@ -1,8 +1,8 @@
 import React from 'react';
 import ReactDOM from 'react-dom/client';
-import App from './use-cases/App';
+import App from './App';
 import { ErrorBoundary } from './components/ErrorBoundary';
-import { initGlobalErrorHandlers } from './utils/global-error-handler';
+import { initGlobalErrorHandlers } from '../services/utils/global-error-handler';
 
 initGlobalErrorHandlers();
 

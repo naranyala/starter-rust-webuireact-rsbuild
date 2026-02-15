@@ -5,9 +5,8 @@ use std::fs;
 use std::path::Path;
 use std::sync::{Arc, Mutex};
 use tracing::{info, Level};
-use tracing_appender::non_blocking::WorkerGuard;
-use tracing_subscriber::{fmt, EnvFilter, Layer};
 use tracing_subscriber::prelude::__tracing_subscriber_SubscriberExt;
+use tracing_subscriber::{fmt, EnvFilter, Layer};
 
 // Consolidated core functionality
 // Combines: config, logging, database, and other infrastructure modules
@@ -150,7 +149,6 @@ impl AppConfig {
 }
 
 // Global guard to ensure the tracing subscriber stays active
-static mut LOG_GUARD: Option<WorkerGuard> = None;
 
 pub fn init_logging_with_config(
     log_file: Option<&str>,
@@ -158,7 +156,7 @@ pub fn init_logging_with_config(
     _append: bool,
 ) -> Result<(), Box<dyn std::error::Error>> {
     // Configure log level
-    let level = match log_level {
+    let _level = match log_level {
         "trace" => Level::TRACE,
         "debug" => Level::DEBUG,
         "info" => Level::INFO,
@@ -171,22 +169,25 @@ pub fn init_logging_with_config(
     let env_filter = EnvFilter::try_from_default_env()
         .unwrap_or_else(|_| EnvFilter::new(format!("rustwebui_app={}", log_level)));
 
-    // Create subscriber with console logging
-    let subscriber = tracing_subscriber::registry()
-        .with(env_filter)
-        .with(
-            fmt::layer()
-                .with_ansi(true) // ANSI colors for console
-                .with_target(true)
-                .with_line_number(true)
-                .boxed()
-        );
+    // Create subscriber with console logging (without timestamps)
+    let subscriber = tracing_subscriber::registry().with(env_filter).with(
+        fmt::layer()
+            .with_ansi(true) // ANSI colors for console
+            .with_target(true)
+            .with_line_number(true)
+            .without_time() // Remove timestamps
+            .boxed(),
+    );
 
     // Set the global subscriber
     tracing::subscriber::set_global_default(subscriber)
         .map_err(|err| format!("Failed to set tracing subscriber: {}", err))?;
 
-    info!(message = "Logging system initialized", log_level = log_level, log_file = log_file.unwrap_or("none"));
+    info!(
+        message = "Logging system initialized",
+        log_level = log_level,
+        log_file = log_file.unwrap_or("none")
+    );
 
     Ok(())
 }
@@ -203,16 +204,14 @@ impl Database {
         conn.execute_batch("PRAGMA journal_mode=WAL;")?;
 
         // Emit database connection event
-        if let Ok(bus) = std::panic::catch_unwind(|| crate::event_bus::EventBus::global()) {
+        if let Ok(bus) =
+            std::panic::catch_unwind(|| crate::infrastructure::event_bus::EventBus::global())
+        {
             if let Err(e) = futures::executor::block_on(bus.emit_simple(
-                &crate::event_bus::AppEventType::DatabaseOperation.to_string(),
+                &crate::infrastructure::event_bus::AppEventType::DatabaseOperation.to_string(),
                 serde_json::json!({
                     "operation": "connect",
-                    "database": db_path,
-                    "timestamp": std::time::SystemTime::now()
-                        .duration_since(std::time::UNIX_EPOCH)
-                        .unwrap()
-                        .as_millis() as u64
+                    "database": db_path
                 }),
             )) {
                 eprintln!("Failed to emit database connection event: {}", e);
@@ -238,16 +237,14 @@ impl Database {
         )?;
 
         // Emit database initialization event
-        if let Ok(bus) = std::panic::catch_unwind(|| crate::event_bus::EventBus::global()) {
+        if let Ok(bus) =
+            std::panic::catch_unwind(|| crate::infrastructure::event_bus::EventBus::global())
+        {
             if let Err(e) = futures::executor::block_on(bus.emit_simple(
-                &crate::event_bus::AppEventType::DatabaseOperation.to_string(),
+                &crate::infrastructure::event_bus::AppEventType::DatabaseOperation.to_string(),
                 serde_json::json!({
                     "operation": "init_schema",
-                    "table": "users",
-                    "timestamp": std::time::SystemTime::now()
-                        .duration_since(std::time::UNIX_EPOCH)
-                        .unwrap()
-                        .as_millis() as u64
+                    "table": "users"
                 }),
             )) {
                 eprintln!("Failed to emit database initialization event: {}", e);
@@ -280,17 +277,15 @@ impl Database {
             }
 
             // Emit sample data insertion event
-            if let Ok(bus) = std::panic::catch_unwind(|| crate::event_bus::EventBus::global()) {
+            if let Ok(bus) =
+                std::panic::catch_unwind(|| crate::infrastructure::event_bus::EventBus::global())
+            {
                 if let Err(e) = futures::executor::block_on(bus.emit_simple(
-                    &crate::event_bus::AppEventType::DataChanged.to_string(),
+                    &crate::infrastructure::event_bus::AppEventType::DataChanged.to_string(),
                     serde_json::json!({
                         "operation": "insert_sample_data",
                         "table": "users",
-                        "count": sample_users.len(),
-                        "timestamp": std::time::SystemTime::now()
-                            .duration_since(std::time::UNIX_EPOCH)
-                            .unwrap()
-                            .as_millis() as u64
+                        "count": sample_users.len()
                     }),
                 )) {
                     eprintln!("Failed to emit sample data insertion event: {}", e);
@@ -311,12 +306,7 @@ impl Database {
 
         let mut stmt = conn.prepare("SELECT id, name, email, role FROM users")?;
         let user_iter = stmt.query_map([], |row| {
-            Ok((
-                row.get(0)?,
-                row.get(1)?,
-                row.get(2)?,
-                row.get(3)?,
-            ))
+            Ok((row.get(0)?, row.get(1)?, row.get(2)?, row.get(3)?))
         })?;
 
         let mut users = Vec::new();
@@ -331,16 +321,14 @@ impl Database {
         }
 
         // Emit get users event
-        if let Ok(bus) = std::panic::catch_unwind(|| crate::event_bus::EventBus::global()) {
+        if let Ok(bus) =
+            std::panic::catch_unwind(|| crate::infrastructure::event_bus::EventBus::global())
+        {
             if let Err(e) = futures::executor::block_on(bus.emit_simple(
-                &crate::event_bus::AppEventType::DatabaseOperation.to_string(),
+                &crate::infrastructure::event_bus::AppEventType::DatabaseOperation.to_string(),
                 serde_json::json!({
                     "operation": "get_users",
-                    "count": users.len(),
-                    "timestamp": std::time::SystemTime::now()
-                        .duration_since(std::time::UNIX_EPOCH)
-                        .unwrap()
-                        .as_millis() as u64
+                    "count": users.len()
                 }),
             )) {
                 eprintln!("Failed to emit get users event: {}", e);
@@ -365,24 +353,18 @@ impl Database {
 
         let stats = serde_json::json!({
             "users": user_count,
-            "tables": table_names,
-            "timestamp": std::time::SystemTime::now()
-                .duration_since(std::time::UNIX_EPOCH)
-                .unwrap()
-                .as_millis() as u64
+            "tables": table_names
         });
 
         // Emit get stats event
-        if let Ok(bus) = std::panic::catch_unwind(|| crate::event_bus::EventBus::global()) {
+        if let Ok(bus) =
+            std::panic::catch_unwind(|| crate::infrastructure::event_bus::EventBus::global())
+        {
             if let Err(e) = futures::executor::block_on(bus.emit_simple(
-                &crate::event_bus::AppEventType::DatabaseOperation.to_string(),
+                &crate::infrastructure::event_bus::AppEventType::DatabaseOperation.to_string(),
                 serde_json::json!({
                     "operation": "get_stats",
-                    "stats": &stats,
-                    "timestamp": std::time::SystemTime::now()
-                        .duration_since(std::time::UNIX_EPOCH)
-                        .unwrap()
-                        .as_millis() as u64
+                    "stats": &stats
                 }),
             )) {
                 eprintln!("Failed to emit get stats event: {}", e);

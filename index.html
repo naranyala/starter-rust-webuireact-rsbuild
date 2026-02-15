@@ -72,14 +72,124 @@ e.resize=function(a,b,c){a||0===a?c||(this.width=a?a=V(a,this.m):0,this.height=b
 e.addControl=function(a){var b=a["class"],c=a.image,f=a.click;a=a.index;var d=document.createElement("span"),n=this.g.getElementsByClassName("wb-control")[0],p=this;b&&(d.className=b);c&&u(d,"background-image","url("+c+")");f&&(d.onclick=function(v){f.call(this,v,p)});n.insertBefore(d,n.childNodes[a||0]);return this};e.removeControl=function(a){(a=this.g.getElementsByClassName(a)[0])&&a.remove();return this};e.addClass=function(a){this.g.classList.add(a);return this};
 e.removeClass=function(a){this.g.classList.remove(a);return this};e.toggleClass=function(a){return this.g.classList.contains(a)?this.removeClass(a):this.addClass(a)};window.WinBox=U;}).call(this);
 
+    // Add window state tracking for WinBox
+    (function() {
+      // Store original methods to call them and then send state updates
+      const originalFocus = window.WinBox.prototype.focus;
+      const originalBlur = window.WinBox.prototype.blur;
+      const originalMinimize = window.WinBox.prototype.minimize;
+      const originalRestore = window.WinBox.prototype.restore;
+      const originalMaximize = window.WinBox.prototype.maximize;
+      const originalClose = window.WinBox.prototype.close;
+      
+      // Override focus method
+      window.WinBox.prototype.focus = function(...args) {
+        const result = originalFocus.apply(this, args);
+        if (window.webui && typeof window.webui.call === 'function') {
+          window.webui.call('window_state_change', {
+            id: this.id,
+            title: this.title || 'Unknown',
+            action: 'focused',
+            focused: true,
+            minimized: this.min || false,
+            maximized: this.max || false,
+            timestamp: Date.now(),
+            totalWindows: window.WinBox.stack ? window.WinBox.stack().length : 0
+          });
+        }
+        return result;
+      };
+      
+      // Override blur method
+      window.WinBox.prototype.blur = function(...args) {
+        const result = originalBlur.apply(this, args);
+        if (window.webui && typeof window.webui.call === 'function') {
+          window.webui.call('window_state_change', {
+            id: this.id,
+            title: this.title || 'Unknown',
+            action: 'blurred',
+            focused: false,
+            minimized: this.min || false,
+            maximized: this.max || false,
+            timestamp: Date.now(),
+            totalWindows: window.WinBox.stack ? window.WinBox.stack().length : 0
+          });
+        }
+        return result;
+      };
+      
+      // Override minimize method
+      window.WinBox.prototype.minimize = function(...args) {
+        const result = originalMinimize.apply(this, args);
+        if (window.webui && typeof window.webui.call === 'function') {
+          window.webui.call('window_state_change', {
+            id: this.id,
+            title: this.title || 'Unknown',
+            action: 'minimized',
+            focused: false,
+            minimized: true,
+            maximized: this.max || false,
+            timestamp: Date.now(),
+            totalWindows: window.WinBox.stack ? window.WinBox.stack().length : 0
+          });
+        }
+        return result;
+      };
+      
+      // Override restore method
+      window.WinBox.prototype.restore = function(...args) {
+        const result = originalRestore.apply(this, args);
+        if (window.webui && typeof window.webui.call === 'function') {
+          window.webui.call('window_state_change', {
+            id: this.id,
+            title: this.title || 'Unknown',
+            action: 'restored',
+            focused: false, // Usually not focused after restore, unless it was the last focused
+            minimized: false,
+            maximized: this.max || false,
+            timestamp: Date.now(),
+            totalWindows: window.WinBox.stack ? window.WinBox.stack().length : 0
+          });
+        }
+        return result;
+      };
+      
+      // Override maximize method
+      window.WinBox.prototype.maximize = function(...args) {
+        const result = originalMaximize.apply(this, args);
+        if (window.webui && typeof window.webui.call === 'function') {
+          window.webui.call('window_state_change', {
+            id: this.id,
+            title: this.title || 'Unknown',
+            action: 'maximized',
+            focused: true,
+            minimized: false,
+            maximized: true,
+            timestamp: Date.now(),
+            totalWindows: window.WinBox.stack ? window.WinBox.stack().length : 0
+          });
+        }
+        return result;
+      };
+      
+      // Override close method
+      window.WinBox.prototype.close = function(...args) {
+        if (window.webui && typeof window.webui.call === 'function') {
+          window.webui.call('window_state_change', {
+            id: this.id,
+            title: this.title || 'Unknown',
+            action: 'closed',
+            focused: false,
+            minimized: this.min || false,
+            maximized: this.max || false,
+            timestamp: Date.now(),
+            totalWindows: (window.WinBox.stack ? window.WinBox.stack().length : 0) - 1
+          });
+        }
+        return originalClose.apply(this, args);
+      };
+    })();
   </script>
-  <script>
-    // React Vendors
-    
-  </script>
-  <script>
-    // Main App
-    
-  </script>
+  <script type="module" src="/src/views/main.tsx"></script>
 </body>
 </html>

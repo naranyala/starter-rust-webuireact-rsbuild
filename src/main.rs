@@ -5,17 +5,17 @@ use tracing::{info, error};
 use webui_rs::webui;
 
 // Import consolidated modules
-mod core;
-use core::{init_logging_with_config, AppConfig, Database};
+mod model;
+mod infrastructure;
+mod viewmodel;
 
-mod event_bus;
-use event_bus::{EventBus, Event, AppEventType};
+use model::core::{init_logging_with_config, AppConfig, Database};
 
-mod websocket_handler;
-use websocket_handler::start_websocket_server;
+use infrastructure::event_bus::EventBus;
 
-mod handlers;
-use handlers::*;
+use viewmodel::websocket_handler::start_websocket_server;
+
+use viewmodel::handlers::*;
 
 // Build-time generated config
 include!(concat!(env!("OUT_DIR"), "/build_config.rs"));
@@ -54,6 +54,8 @@ fn start_http_server(port: u16) -> Result<(), Box<dyn std::error::Error + Send +
     
     let ws = null;
     let isConnected = false;
+    let reconnectAttempts = 0;
+    let lastError = null;
     
     function connect() {
         try {
@@ -62,6 +64,8 @@ fn start_http_server(port: u16) -> Result<(), Box<dyn std::error::Error + Send +
             ws.onopen = function(event) {
                 console.log('WebUI WebSocket connected');
                 isConnected = true;
+                reconnectAttempts = 0;
+                lastError = null;
             };
             
             ws.onmessage = function(event) {
@@ -108,12 +112,14 @@ fn start_http_server(port: u16) -> Result<(), Box<dyn std::error::Error + Send +
             ws.onclose = function(event) {
                 console.log('WebUI WebSocket disconnected');
                 isConnected = false;
+                reconnectAttempts++;
                 // Attempt to reconnect after delay
                 setTimeout(connect, 3000);
             };
             
             ws.onerror = function(error) {
                 console.error('WebUI WebSocket error:', error);
+                lastError = { message: error.message || 'WebSocket error' };
             };
         } catch(e) {
             console.error('Failed to create WebUI WebSocket connection:', e);
@@ -127,6 +133,28 @@ fn start_http_server(port: u16) -> Result<(), Box<dyn std::error::Error + Send +
     window.WebUI = {
         isConnected: function() {
             return isConnected;
+        },
+        getConnectionState: function() {
+            let state = 'closed';
+            if (isConnected) {
+                state = 'ready';
+            } else if (ws && ws.readyState === 0) {
+                state = 'connecting';
+            } else if (ws && ws.readyState === 1) {
+                state = 'open';
+            } else if (reconnectAttempts > 0) {
+                state = 'reconnecting';
+            }
+            return {
+                state: state,
+                reconnectAttempts: reconnectAttempts
+            };
+        },
+        getReadyState: function() {
+            return ws ? ws.readyState : 3; // 3 = CLOSED
+        },
+        getLastError: function() {
+            return lastError;
         },
         send: function(data) {
             if (ws && ws.readyState === WebSocket.OPEN) {
@@ -333,11 +361,7 @@ async fn main() {
         "app.start",
         serde_json::json!({
             "app_name": config.get_app_name(),
-            "version": config.get_version(),
-            "timestamp": std::time::SystemTime::now()
-                .duration_since(std::time::UNIX_EPOCH)
-                .unwrap()
-                .as_millis() as u64
+            "version": config.get_version()
         }),
     ).await {
         error!(error = %e, "Failed to emit app start event");
@@ -346,7 +370,7 @@ async fn main() {
     // Start WebSocket server in a separate task
     let event_bus_for_ws = event_bus.clone();
     tokio::spawn(async move {
-        if let Err(e) = start_websocket_server(event_bus_for_ws).await {
+        if let Err(e) = start_websocket_server(event_bus_for_ws, 9000).await {
             error!(error = %e, "Failed to start WebSocket server");
         }
     });
@@ -447,12 +471,7 @@ async fn main() {
     // Emit shutdown event
     if let Err(e) = event_bus.emit_simple(
         "app.shutdown",
-        serde_json::json!({
-            "timestamp": std::time::SystemTime::now()
-                .duration_since(std::time::UNIX_EPOCH)
-                .unwrap()
-                .as_millis() as u64
-        }),
+        serde_json::json!({}),
     ).await {
         error!(error = %e, "Failed to emit app shutdown event");
     }
