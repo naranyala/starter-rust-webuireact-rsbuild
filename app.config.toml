@@ -33,6 +33,8 @@ file = "application.log"
 # Log file name (empty to disable file logging)
 append = true
 # Append to existing log file or overwrite
+webui_verbose = false
+# Enable verbose webui-rs internal logging (true/false)
 
 [features]
 dark_mode = true

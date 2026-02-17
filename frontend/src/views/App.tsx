@@ -1,403 +1,104 @@
-import React, { useState, useEffect, useCallback } from 'react';
-import { EventBus, AppEventType, useEventBus, useEventEmitter } from '../models/event-bus';
-import { windowManager, WindowInfo } from '../services/window-manager';
+// Main App component - Simplified and modular
 
-declare global {
-  interface Window {
-    WinBox: any;
-    getUsers?: () => void;
-    getDbStats?: () => void;
-    refreshUsers?: () => void;
-    searchUsers?: () => void;
-    Logger?: {
-      info: (message: string, meta?: Record<string, any>) => void;
-      warn: (message: string, meta?: Record<string, any>) => void;
-      error: (message: string, meta?: Record<string, any>) => void;
-      debug: (message: string, meta?: Record<string, any>) => void;
-    };
-  }
-}
-
-// Use window.Logger or create a fallback (Logger from utils.js already includes level prefix)
-const Logger = window.Logger || {
-  info: (msg: string, meta?: any) => console.log(msg, meta),
-  warn: (msg: string, meta?: any) => console.warn(msg, meta),
-  error: (msg: string, meta?: any) => console.error(msg, meta),
-  debug: (msg: string, meta?: any) => console.debug(msg, meta),
-};
-
-interface User {
-  id: number;
-  name: string;
-  email: string;
-  role: string;
-  status: string;
-  created_at: string;
-}
+import React, { useEffect } from 'react';
+import { Header } from './components/Header';
+import { Sidebar } from './components/Sidebar';
+import { MainContent } from './components/MainContent';
+import { WebSocketStatusPanel } from './components/WebSocketStatusPanel';
+import { useWebSocketStatus, useAppInitialization, useWindowManager } from './hooks/useAppLogic';
+import { useWindowOperations } from './hooks/useWindowOperations';
+import { Logger } from './utils/logger';
+import { EventBus, AppEventType } from '../models/event-bus';
 
 const App: React.FC = () => {
-  const [activeWindows, setActiveWindows] = useState<WindowInfo[]>([]);
-  const [dbUsers, setDbUsers] = useState<User[]>([]);
-  const [dbStats, setDbStats] = useState({ users: 0, tables: [] as string[] });
-  const [isLoadingUsers, setIsLoadingUsers] = useState(false);
+  // Initialize app
+  useAppInitialization();
 
-  const generateSystemInfoHTML = (): string => {
-    const now = new Date();
-    return `
-      <div style="padding: 20px; color: white; font-family: 'Segoe UI', sans-serif; max-height: 100%; overflow-y: auto;">
-        <h2 style="margin-bottom: 20px; color: #4f46e5;">💻 System Information</h2>
-        
-        <div style="margin-bottom: 20px;">
-          <h3 style="color: #94a3b8; font-size: 0.9rem; margin-bottom: 10px;">Operating System</h3>
-          <div style="background: rgba(255,255,255,0.05); padding: 15px; border-radius: 8px;">
-            <div style="display: flex; justify-content: space-between; margin-bottom: 8px;">
-              <span style="color: #64748b;">Platform:</span>
-              <span>${navigator.platform}</span>
-            </div>
-            <div style="display: flex; justify-content: space-between; margin-bottom: 8px;">
-              <span style="color: #64748b;">User Agent:</span>
-              <span style="font-size: 0.8rem; max-width: 200px; overflow: hidden; text-overflow: ellipsis;">${navigator.userAgent}</span>
-            </div>
-            <div style="display: flex; justify-content: space-between;">
-              <span style="color: #64748b;">Language:</span>
-              <span>${navigator.language}</span>
-            </div>
-          </div>
-        </div>
+  // WebSocket status
+  const { wsStatus } = useWebSocketStatus();
 
-        <div style="margin-bottom: 20px;">
-          <h3 style="color: #94a3b8; font-size: 0.9rem; margin-bottom: 10px;">Display & Screen</h3>
-          <div style="background: rgba(255,255,255,0.05); padding: 15px; border-radius: 8px;">
-            <div style="display: flex; justify-content: space-between; margin-bottom: 8px;">
-              <span style="color: #64748b;">Screen Resolution:</span>
-              <span>${screen.width} × ${screen.height}</span>
-            </div>
-            <div style="display: flex; justify-content: space-between; margin-bottom: 8px;">
-              <span style="color: #64748b;">Available Resolution:</span>
-              <span>${screen.availWidth} × ${screen.availHeight}</span>
-            </div>
-            <div style="display: flex; justify-content: space-between; margin-bottom: 8px;">
-              <span style="color: #64748b;">Color Depth:</span>
-              <span>${screen.colorDepth}-bit</span>
-            </div>
-            <div style="display: flex; justify-content: space-between;">
-              <span style="color: #64748b;">Pixel Ratio:</span>
-              <span>${window.devicePixelRatio}x</span>
-            </div>
-          </div>
-        </div>
+  // Window management
+  const { activeWindows, setActiveWindows } = useWindowManager();
+  const {
+    openWindow,
+    focusWindow,
+    closeWindow,
+    closeAllWindows,
+    hideAllWindows,
+    dbUsers,
+    setDbUsers,
+    updateSQLiteTable,
+    openSystemInfoWindow,
+    openSQLiteWindow,
+  } = useWindowOperations(setActiveWindows);
 
-        <div style="margin-bottom: 20px;">
-          <h3 style="color: #94a3b8; font-size: 0.9rem; margin-bottom: 10px;">Browser Information</h3>
-          <div style="background: rgba(255,255,255,0.05); padding: 15px; border-radius: 8px;">
-            <div style="display: flex; justify-content: space-between; margin-bottom: 8px;">
-              <span style="color: #64748b;">Online Status:</span>
-              <span style="color: ${navigator.onLine ? '#10b981' : '#ef4444'}">${navigator.onLine ? '🟢 Online' : '🔴 Offline'}</span>
-            </div>
-            <div style="display: flex; justify-content: space-between; margin-bottom: 8px;">
-              <span style="color: #64748b;">Cookies Enabled:</span>
-              <span>${navigator.cookieEnabled ? 'Yes' : 'No'}</span>
-            </div>
-            <div style="display: flex; justify-content: space-between; margin-bottom: 8px;">
-              <span style="color: #64748b;">Cores:</span>
-              <span>${navigator.hardwareConcurrency || 'Unknown'}</span>
-            </div>
-            <div style="display: flex; justify-content: space-between;">
-              <span style="color: #64748b;">Memory:</span>
-              <span>${navigator.deviceMemory || 'Unknown'} GB</span>
-            </div>
-          </div>
-        </div>
-
-        <div>
-          <h3 style="color: #94a3b8; font-size: 0.9rem; margin-bottom: 10px;">Current Time</h3>
-          <div style="background: rgba(255,255,255,0.05); padding: 15px; border-radius: 8px;">
-            <div style="display: flex; justify-content: space-between; margin-bottom: 8px;">
-              <span style="color: #64748b;">Local Time:</span>
-              <span>${now.toLocaleString()}</span>
-            </div>
-            <div style="display: flex; justify-content: space-between; margin-bottom: 8px;">
-              <span style="color: #64748b;">Timezone:</span>
-              <span>${Intl.DateTimeFormat().resolvedOptions().timeZone}</span>
-            </div>
-            <div style="display: flex; justify-content: space-between;">
-              <span style="color: #64748b;">Timezone Offset:</span>
-              <span>UTC${now.getTimezoneOffset() > 0 ? '-' : '+'}${Math.abs(now.getTimezoneOffset() / 60)}</span>
-            </div>
-          </div>
-        </div>
-      </div>
-    `;
-  };
-
-  const generateSQLiteHTML = (): string => {
-    const users = dbUsers.length > 0 ? dbUsers : [
-      { id: 1, name: 'John Doe', email: 'john@example.com', role: 'Admin', status: 'Active' },
-      { id: 2, name: 'Jane Smith', email: 'jane@example.com', role: 'User', status: 'Active' },
-      { id: 3, name: 'Bob Johnson', email: 'bob@example.com', role: 'User', status: 'Inactive' },
-      { id: 4, name: 'Alice Brown', email: 'alice@example.com', role: 'Editor', status: 'Active' },
-      { id: 5, name: 'Charlie Wilson', email: 'charlie@example.com', role: 'User', status: 'Pending' },
-    ];
-
-    const rows = users.map((row: User) => `
-      <tr style="border-bottom: 1px solid #334155;">
-        <td style="padding: 10px; color: #e2e8f0;">${row.id}</td>
-        <td style="padding: 10px; color: #e2e8f0;">${row.name}</td>
-        <td style="padding: 10px; color: #94a3b8;">${row.email}</td>
-        <td style="padding: 10px;"><span style="background: ${row.role === 'Admin' ? '#dc2626' : row.role === 'Editor' ? '#f59e0b' : '#3b82f6'}; padding: 2px 8px; border-radius: 4px; font-size: 0.75rem;">${row.role}</span></td>
-        <td style="padding: 10px;"><span style="color: ${row.status === 'Active' ? '#10b981' : row.status === 'Inactive' ? '#ef4444' : '#f59e0b'}">● ${row.status}</span></td>
-      </tr>
-    `).join('');
-
-    return `
-      <div style="padding: 20px; color: white; font-family: 'Segoe UI', sans-serif; height: 100%; display: flex; flex-direction: column;">
-        <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 20px;">
-          <h2 style="color: #4f46e5;">🗄️ SQLite Database Viewer</h2>
-          <span style="background: #10b981; padding: 5px 12px; border-radius: 20px; font-size: 0.8rem;">Live Data</span>
-        </div>
-
-        <div style="background: rgba(255,255,255,0.05); padding: 15px; border-radius: 8px; margin-bottom: 15px;">
-          <div style="display: flex; gap: 10px; margin-bottom: 15px;">
-            <input type="text" id="db-search" placeholder="Search records..." style="flex: 1; padding: 8px 12px; background: rgba(0,0,0,0.3); border: 1px solid #334155; border-radius: 6px; color: white; font-size: 0.9rem;">
-            <button onclick="searchUsers()" style="padding: 8px 16px; background: #4f46e5; color: white; border: none; border-radius: 6px; cursor: pointer; font-size: 0.9rem;">Search</button>
-            <button onclick="refreshUsers()" style="padding: 8px 16px; background: #f59e0b; color: white; border: none; border-radius: 6px; cursor: pointer; font-size: 0.9rem;">↻</button>
-          </div>
-
-          <div style="display: flex; gap: 15px; font-size: 0.8rem; color: #94a3b8;">
-            <span>📊 Table: <strong style="color: white;">users</strong></span>
-            <span>📋 Records: <strong style="color: white;">${users.length}</strong></span>
-            <span>💾 Source: <strong style="color: white;">Rust SQLite</strong></span>
-          </div>
-        </div>
-
-        <div style="flex: 1; overflow: auto; background: rgba(0,0,0,0.2); border-radius: 8px;">
-          <table style="width: 100%; border-collapse: collapse;">
-            <thead style="background: rgba(255,255,255,0.1); position: sticky; top: 0;">
-              <tr>
-                <th style="padding: 12px 10px; text-align: left; color: #94a3b8; font-weight: 600; font-size: 0.85rem;">ID</th>
-                <th style="padding: 12px 10px; text-align: left; color: #94a3b8; font-weight: 600; font-size: 0.85rem;">Name</th>
-                <th style="padding: 12px 10px; text-align: left; color: #94a3b8; font-weight: 600; font-size: 0.85rem;">Email</th>
-                <th style="padding: 12px 10px; text-align: left; color: #94a3b8; font-weight: 600; font-size: 0.85rem;">Role</th>
-                <th style="padding: 12px 10px; text-align: left; color: #94a3b8; font-weight: 600; font-size: 0.85rem;">Status</th>
-              </tr>
-            </thead>
-            <tbody id="users-table-body">
-              ${rows}
-            </tbody>
-          </table>
-        </div>
-
-        <div style="margin-top: 15px; padding: 10px; background: rgba(255,255,255,0.05); border-radius: 8px; display: flex; justify-content: space-between; align-items: center;">
-          <span style="color: #64748b; font-size: 0.8rem;">Showing ${users.length} record${users.length !== 1 ? 's' : ''}</span>
-          <div style="display: flex; gap: 5px;">
-            <button style="padding: 5px 12px; background: rgba(255,255,255,0.1); color: white; border: none; border-radius: 4px; cursor: pointer; font-size: 0.8rem;" disabled>Previous</button>
-            <button style="padding: 5px 12px; background: rgba(255,255,255,0.1); color: white; border: none; border-radius: 4px; cursor: pointer; font-size: 0.8rem;" disabled>Next</button>
-          </div>
-        </div>
-      </div>
-    `;
-  };
-
-  const openSystemInfoWindow = () => {
-    openWindow('System Information', generateSystemInfoHTML(), '💻');
-  };
-
-  const openSQLiteWindow = () => {
-    setIsLoadingUsers(true);
-    Logger.info('Opening SQLite window, fetching users from backend...');
-
-    if (window.getUsers) {
-      Logger.info('Calling Rust backend get_users function');
-      window.getUsers();
-    } else {
-      Logger.warn('Rust backend get_users not available');
-      setIsLoadingUsers(false);
-    }
-
-    if (window.getDbStats) {
-      window.getDbStats();
-    }
-
-    openWindow('SQLite Database', generateSQLiteHTML(), '🗄️');
-  };
-
-  const updateSQLiteTable = useCallback(() => {
-    const tableBody = document.getElementById('users-table-body');
-    if (!tableBody || dbUsers.length === 0) return;
-
-    const rows = dbUsers.map((row: User) => `
-      <tr style="border-bottom: 1px solid #334155;">
-        <td style="padding: 10px; color: #e2e8f0;">${row.id}</td>
-        <td style="padding: 10px; color: #e2e8f0;">${row.name}</td>
-        <td style="padding: 10px; color: #94a3b8;">${row.email}</td>
-        <td style="padding: 10px;"><span style="background: ${row.role === 'Admin' ? '#dc2626' : row.role === 'Editor' ? '#f59e0b' : '#3b82f6'}; padding: 2px 8px; border-radius: 4px; font-size: 0.75rem;">${row.role}</span></td>
-        <td style="padding: 10px;"><span style="color: ${row.status === 'Active' ? '#10b981' : row.status === 'Inactive' ? '#ef4444' : '#f59e0b'}">● ${row.status}</span></td>
-      </tr>
-    `).join('');
-
-    tableBody.innerHTML = rows;
-  }, [dbUsers]);
-
-  const openWindow = (title: string, content: string, icon: string) => {
-    if (!window.WinBox) {
-      Logger.error('WinBox is not loaded yet. Please try again in a moment.');
-      return;
-    }
-
-    const windowId = 'win-' + Date.now();
-    let winboxInstance: any;
-
-    winboxInstance = new window.WinBox({
-      title: title,
-      background: '#1e293b',
-      border: 4,
-      width: 'calc(100% - 200px)',
-      height: '100%',
-      x: '200px',
-      y: '0',
-      minwidth: '300px',
-      minheight: '300px',
-      max: true,
-      min: true,
-      mount: document.createElement('div'),
-      oncreate: function() {
-        this.body.innerHTML = content;
-      }
-    });
-
-    // Register the window with the window manager
-    windowManager.registerWindow(windowId, title, winboxInstance);
-    
-    // Update the local state to reflect current windows
-    setActiveWindows([...windowManager.getAllWindows()]);
-  };
-
-  const focusWindow = (windowInfo: WindowInfo) => {
-    if (windowInfo.minimized) {
-      windowInfo.winboxInstance.restore();
-    }
-    windowInfo.winboxInstance.focus();
-  };
-
-  const closeWindow = (windowInfo: WindowInfo) => {
-    windowInfo.winboxInstance.close();
-  };
-
-  const closeAllWindows = () => {
-    activeWindows.forEach(windowInfo => {
-      windowInfo.winboxInstance.close();
-    });
-  };
-
-  const hideAllWindows = () => {
-    activeWindows.forEach(windowInfo => {
-      if (!windowInfo.minimized) {
-        windowInfo.winboxInstance.minimize();
-      }
-    });
-    Logger.info('All windows minimized - showing main view');
-  };
-
-  const handleWindowResize = () => {
-    setActiveWindows(prev => prev.map(w => {
-      if (w.maximized && !w.minimized) {
-        const availableWidth = window.innerWidth - 200;
-        const availableHeight = window.innerHeight;
-        
-        w.winboxInstance.resize(availableWidth, availableHeight);
-        w.winboxInstance.move(200, 0);
-      }
-      return w;
-    }));
-  };
-
-  // Event emitter hook
-  const emitEvent = useEventEmitter();
-
-  const emitEvent = useEventEmitter();
-
-  // WebSocket status state
-  const [wsStatus, setWsStatus] = useState<'connecting' | 'connected' | 'disconnected'>('connecting');
-  const [expanded, setExpanded] = useState(false);
-
-  // Subscribe to backend connected event
-  useEventBus(AppEventType.BACKEND_CONNECTED, (event) => {
-    Logger.info('Backend connected', event.payload);
-    setWsStatus('connected');
-  });
-
-  // Subscribe to UI ready event from backend
-  useEventBus(AppEventType.UI_READY, (event) => {
-    Logger.info('UI ready event received from backend', event.payload);
-    setWsStatus('connected');
-  });
-
+  // Handle database response
   useEffect(() => {
-    const handleDisconnected = () => setWsStatus('disconnected');
-    const handleStateChange = (e: CustomEvent) => {
-      const { newState } = e.detail;
-      if (newState === 'open' || newState === 'ready') setWsStatus('connected');
-      else if (newState === 'connecting' || newState === 'reconnecting') setWsStatus('connecting');
-      else if (newState === 'closed' || newState === 'error') setWsStatus('disconnected');
-    };
+    const handleDbResponse = ((event: CustomEvent) => {
+      const response = event.detail;
+      if (response.success) {
+        setDbUsers(response.data || []);
+        Logger.info('Users loaded from database', { count: response.data?.length || 0 });
+        updateSQLiteTable();
 
-    window.addEventListener('webui_disconnected', handleDisconnected);
-    window.addEventListener('webui_connection_state_change', handleStateChange as EventListener);
-
-    // Check initial state periodically to ensure accurate status
-    const checkInitialStatus = () => {
-      if (window.WebUI?.isConnected()) {
-        setWsStatus('connected');
+        // Emit data changed event
+        const emitEvent = EventBus.global();
+        emitEvent.emit_simple('data.changed', {
+          table: 'users',
+          count: response.data?.length || 0,
+          action: 'loaded'
+        });
       } else {
-        // If not connected, check the connection state
-        const stateInfo = window.WebUI?.getConnectionState();
-        if (stateInfo) {
-          if (stateInfo.state === 'connecting' || stateInfo.state === 'reconnecting') {
-            setWsStatus('connecting');
-          } else {
-            setWsStatus('disconnected');
-          }
-        }
+        Logger.error('Failed to load users', { error: response.error });
       }
-    };
+    }) as EventListener;
 
-    checkInitialStatus();
-    
-    // Set up periodic status check
-    const statusCheckInterval = setInterval(checkInitialStatus, 2000);
+    const handleStatsResponse = ((event: CustomEvent) => {
+      const response = event.detail;
+      if (response.success) {
+        Logger.info('Database stats loaded', response.stats);
+      }
+    }) as EventListener;
+
+    window.addEventListener('db_response', handleDbResponse);
+    window.addEventListener('stats_response', handleStatsResponse);
 
     return () => {
-      window.removeEventListener('webui_disconnected', handleDisconnected);
-      window.removeEventListener('webui_connection_state_change', handleStateChange as EventListener);
-      clearInterval(statusCheckInterval);
+      window.removeEventListener('db_response', handleDbResponse);
+      window.removeEventListener('stats_response', handleStatsResponse);
     };
-  }, []);
+  }, [setDbUsers, updateSQLiteTable]);
 
+  // Handle window resize
   useEffect(() => {
-    Logger.info('Application initialized');
+    const handleWindowResize = () => {
+      const sidebarWidth = 200;
+      const availableWidth = window.innerWidth - sidebarWidth;
+      const availableHeight = window.innerHeight - 40;
+      
+      setActiveWindows(prev => prev.map(w => {
+        if (w.maximized && !w.minimized) {
+          w.winboxInstance.resize(availableWidth, availableHeight);
+          w.winboxInstance.move(sidebarWidth, 0);
+        }
+        return w;
+      }));
+    };
 
-    // Emit app start event
-    emitEvent(AppEventType.APP_START, {
-      timestamp: Date.now(),
-      platform: 'frontend',
-      userAgent: navigator.userAgent
-    });
+    window.addEventListener('resize', handleWindowResize);
+    return () => window.removeEventListener('resize', handleWindowResize);
+  }, [setActiveWindows]);
 
-    // Emit UI ready event to signal that frontend is ready
-    emitEvent(AppEventType.UI_READY, {
-      timestamp: Date.now(),
-      message: 'Frontend UI is ready and listening'
-    });
-
-    window.refreshUsers = () => {
+  // Setup global functions
+  useEffect(() => {
+    (window as any).refreshUsers = () => {
       Logger.info('Refreshing users from database');
-      setIsLoadingUsers(true);
-      if (window.getUsers) {
-        window.getUsers();
+      if ((window as any).getUsers) {
+        (window as any).getUsers();
       }
     };
 
-    window.searchUsers = () => {
+    (window as any).searchUsers = () => {
       const searchInput = document.getElementById('db-search') as HTMLInputElement;
       const searchTerm = searchInput?.value.toLowerCase() || '';
       Logger.info('Searching users', { term: searchTerm });
@@ -411,62 +112,7 @@ const App: React.FC = () => {
         });
       }
     };
-
-    const handleDbResponse = ((event: CustomEvent) => {
-      const response = event.detail;
-      if (response.success) {
-        setDbUsers(response.data || []);
-        Logger.info('Users loaded from database', { count: response.data?.length || 0 });
-        updateSQLiteTable();
-
-        // Emit data changed event
-        emitEvent(AppEventType.DATA_CHANGED, {
-          table: 'users',
-          count: response.data?.length || 0,
-          action: 'loaded'
-        });
-      } else {
-        Logger.error('Failed to load users', { error: response.error });
-      }
-      setIsLoadingUsers(false);
-    }) as EventListener;
-
-    const handleStatsResponse = ((event: CustomEvent) => {
-      const response = event.detail;
-      if (response.success) {
-        setDbStats(response.stats);
-        Logger.info('Database stats loaded', response.stats);
-      }
-    }) as EventListener;
-
-    // Function to update active windows state based on window manager
-    const updateActiveWindows = () => {
-      setActiveWindows([...windowManager.getAllWindows()]);
-    };
-
-    // Listen for window manager events to update state
-    const intervalId = setInterval(updateActiveWindows, 100); // Update every 100ms
-
-    window.addEventListener('db_response', handleDbResponse);
-    window.addEventListener('stats_response', handleStatsResponse);
-    window.addEventListener('resize', handleWindowResize);
-
-    // Initial update
-    updateActiveWindows();
-
-    return () => {
-      clearInterval(intervalId);
-      window.removeEventListener('db_response', handleDbResponse);
-      window.removeEventListener('stats_response', handleStatsResponse);
-      window.removeEventListener('resize', handleWindowResize);
-
-      // Emit app shutdown event
-      emitEvent(AppEventType.APP_SHUTDOWN, {
-        timestamp: Date.now(),
-        reason: 'component_unmount'
-      });
-    };
-  }, [updateSQLiteTable, emitEvent]);
+  }, []);
 
   return (
     <>
@@ -482,12 +128,14 @@ const App: React.FC = () => {
           background-color: #f5f7fa;
           color: #333;
           font-size: 14px;
+          overflow: hidden;
         }
 
         .app {
           min-height: 100vh;
           display: flex;
           flex-direction: row;
+          height: 100vh;
         }
 
         .sidebar {
@@ -497,6 +145,8 @@ const App: React.FC = () => {
           display: flex;
           flex-direction: column;
           border-right: 1px solid #334155;
+          flex-shrink: 0;
+          z-index: 1000;
         }
 
         .home-button-container {
@@ -526,14 +176,6 @@ const App: React.FC = () => {
           background: linear-gradient(135deg, #4338ca 0%, #6d28d9 100%);
           transform: translateY(-1px);
           box-shadow: 0 2px 8px rgba(79, 70, 229, 0.4);
-        }
-
-        .home-icon {
-          font-size: 1rem;
-        }
-
-        .home-text {
-          font-size: 0.85rem;
         }
 
         .sidebar-header {
@@ -671,11 +313,6 @@ const App: React.FC = () => {
           overflow: hidden;
         }
 
-        .main-container .main-content {
-          flex: 1;
-          overflow-y: auto;
-        }
-
         .header {
           background: linear-gradient(135deg, #6a11cb 0%, #2575fc 100%);
           color: white;
@@ -770,31 +407,24 @@ const App: React.FC = () => {
           font-weight: 500;
         }
 
-        .wb-dock,
-        .wb-taskbar,
-        .winbox-dock,
-        .winbox-taskbar,
-        .winbox-dock-container,
-        .wb-dock-container,
-        .winbox.minimized ~ .wb-dock,
-        .winbox.min ~ .wb-dock,
-        .winbox.minimized ~ .wb-taskbar,
-        .winbox.min ~ .wb-taskbar {
-          display: none !important;
-          visibility: hidden !important;
-          opacity: 0 !important;
-          height: 0 !important;
-          width: 0 !important;
-          position: absolute !important;
-          bottom: -9999px !important;
+        /* WinBox windows should respect sidebar width */
+        .winbox {
+          left: 200px !important;
+          width: calc(100% - 200px) !important;
         }
 
-        .winbox.min,
-        .winbox.minimized {
-          opacity: 0 !important;
-          pointer-events: none !important;
-          top: -9999px !important;
-          left: -9999px !important;
+        .winbox.max {
+          left: 200px !important;
+          top: 0 !important;
+          width: calc(100% - 200px) !important;
+          height: calc(100% - 40px) !important;
+        }
+
+        /* WebSocket status panel - full width at bottom */
+        .ws-status-panel {
+          width: 100%;
+          flex-shrink: 0;
+          z-index: 999;
         }
 
         @media (max-width: 768px) {
@@ -827,161 +457,23 @@ const App: React.FC = () => {
       `}</style>
 
       <div className="app">
-        <aside className="sidebar">
-          <div className="home-button-container">
-            <button onClick={hideAllWindows} className="home-btn" title="Show Main View">
-              <span className="home-icon">🏠</span>
-              <span className="home-text">Home</span>
-            </button>
-          </div>
-
-          <div className="sidebar-header">
-            <h2>Windows</h2>
-            <span className="window-count">{activeWindows.length}</span>
-          </div>
-
-          <div className="window-list">
-            {activeWindows.map((window) => (
-              <div
-                key={window.id}
-                className={`window-item ${window.minimized ? 'minimized' : ''}`}
-                onClick={() => focusWindow(window)}
-              >
-                <div className="window-icon">📷</div>
-                <div className="window-info">
-                  <span className="window-title">{window.title}</span>
-                  <span className="window-status">{window.minimized ? 'Minimized' : 'Active'}</span>
-                </div>
-                <button
-                  className="window-close"
-                  onClick={(e) => { e.stopPropagation(); closeWindow(window); }}
-                  title="Close window"
-                >
-                  ×
-                </button>
-              </div>
-            ))}
-
-            {activeWindows.length === 0 && (
-              <div className="no-windows">
-                No open windows
-              </div>
-            )}
-          </div>
-
-          <div className="sidebar-footer">
-            {activeWindows.length > 0 && (
-              <button onClick={closeAllWindows} className="close-all-btn">
-                Close All
-              </button>
-            )}
-          </div>
-        </aside>
+        <Sidebar
+          activeWindows={activeWindows}
+          onFocusWindow={focusWindow}
+          onCloseWindow={closeWindow}
+          onCloseAllWindows={closeAllWindows}
+          onHideAllWindows={hideAllWindows}
+        />
 
         <div className="main-container">
-          <header className="header">
-            <h1>System Dashboard</h1>
-          </header>
-
-          <main className="main-content">
-            <section className="cards-section">
-              <div className="cards-grid two-cards">
-                <div className="feature-card" onClick={openSystemInfoWindow}>
-                  <div className="card-icon">💻</div>
-                  <div className="card-content">
-                    <h3 className="card-title">System Information</h3>
-                    <p className="card-description">
-                      View detailed system information including OS, memory, CPU, and runtime statistics.
-                    </p>
-                    <div className="card-tags">
-                      <span className="tag">Hardware</span>
-                      <span className="tag">Stats</span>
-                    </div>
-                  </div>
-                </div>
-
-                <div className="feature-card" onClick={openSQLiteWindow}>
-                  <div className="card-icon">🗄️</div>
-                  <div className="card-content">
-                    <h3 className="card-title">SQLite Database</h3>
-                    <p className="card-description">
-                      Interactive database viewer with sample data. Connects to backend SQLite integration.
-                    </p>
-                    <div className="card-tags">
-                      <span className="tag">Database</span>
-                      <span className="tag">Mockup</span>
-                    </div>
-                  </div>
-                </div>
-              </div>
-            </section>
-          </main>
-
-          {/* Collapsible WebSocket Status Panel */}
-          <div
-            className="ws-status-panel"
-            style={{
-              backgroundColor: wsStatus === 'connected' ? '#166534' : wsStatus === 'connecting' ? '#854d0e' : '#991b1b',
-              borderTop: `2px solid ${wsStatus === 'connected' ? '#22c55e' : wsStatus === 'connecting' ? '#eab308' : '#ef4444'}`,
-              flexShrink: 0,
-              overflow: 'hidden',
-            }}
-          >
-            <div
-              onClick={() => setExpanded(!expanded)}
-              style={{
-                height: expanded ? 'auto' : '20px',
-                minHeight: '20px',
-                display: 'flex',
-                alignItems: 'center',
-                justifyContent: 'space-between',
-                padding: '4px 8px',
-                cursor: 'pointer',
-                fontSize: '11px',
-                fontFamily: 'monospace',
-                color: wsStatus === 'connected' ? '#86efac' : wsStatus === 'connecting' ? '#fde047' : '#fca5a5',
-              }}
-            >
-              <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
-                <span>{wsStatus === 'connected' ? '●' : wsStatus === 'connecting' ? '◐' : '○'}</span>
-                <span>WS: {wsStatus}</span>
-              </div>
-              <span style={{ fontSize: '12px' }}>{expanded ? '▲' : '▼'}</span>
-            </div>
-            
-            {expanded && (
-              <div
-                style={{
-                  padding: '8px',
-                  borderTop: '1px solid rgba(255,255,255,0.1)',
-                  fontSize: '10px',
-                  fontFamily: 'monospace',
-                  color: '#cbd5e1',
-                  backgroundColor: 'rgba(0,0,0,0.2)',
-                }}
-              >
-                <div style={{ marginBottom: '4px' }}>
-                  <strong>Status:</strong> {wsStatus.toUpperCase()}
-                </div>
-                <div style={{ marginBottom: '4px' }}>
-                  <strong>URL:</strong> {window.location.protocol === 'https:' ? 'wss://' : 'ws://'}{window.location.host}/_webui_ws_connect
-                </div>
-                <div style={{ marginBottom: '4px' }}>
-                  <strong>Connection State:</strong> {window.WebUI?.getConnectionState()?.state || 'unknown'}
-                </div>
-                <div style={{ marginBottom: '4px' }}>
-                  <strong>Ready State:</strong> {window.WebUI?.getReadyState() !== undefined ? 
-                    ['CONNECTING', 'OPEN', 'CLOSING', 'CLOSED'][window.WebUI.getReadyState()] || 'UNINSTANTIATED' : 'unknown'}
-                </div>
-                <div style={{ marginBottom: '4px' }}>
-                  <strong>Reconnect Attempts:</strong> {window.WebUI?.getConnectionState()?.reconnectAttempts || 0}
-                </div>
-                <div>
-                  <strong>Last Error:</strong> {window.WebUI?.getLastError()?.message || 'None'}
-                </div>
-              </div>
-            )}
-          </div>
+          <Header />
+          
+          <MainContent
+            onOpenSystemInfo={openSystemInfoWindow}
+            onOpenSQLite={openSQLiteWindow}
+          />
+          
+          <WebSocketStatusPanel wsStatus={wsStatus} />
         </div>
       </div>
     </>
