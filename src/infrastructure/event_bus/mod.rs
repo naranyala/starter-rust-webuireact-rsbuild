@@ -167,16 +167,16 @@ mod tests {
     #[tokio::test]
     async fn test_event_bus_basic() {
         let bus = EventBus::new();
-        
-        let mut received_event = false;
-        bus.subscribe("test.event", |_| {
-            received_event = true;
+
+        // Test that we can subscribe without errors
+        let result = bus.subscribe("test.event", |_| {
             Ok(())
-        }).unwrap();
+        });
         
-        bus.emit_simple("test.event", serde_json::json!({"test": "data"})).await.unwrap();
-        
-        // Note: In a real scenario, you'd need to wait for async processing
-        assert!(true); // Placeholder assertion
+        assert!(result.is_ok());
+
+        // Test that we can emit without errors
+        let emit_result = bus.emit_simple("test.event", serde_json::json!({"test": "data"})).await;
+        assert!(emit_result.is_ok());
     }
 }

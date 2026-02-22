@@ -3,7 +3,8 @@
 
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
-use tracing::{debug, error};
+#[allow(unused_imports)]
+use tracing::debug;
 
 /// Supported serialization formats
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]

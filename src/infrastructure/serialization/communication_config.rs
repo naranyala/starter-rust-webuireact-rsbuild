@@ -1,7 +1,8 @@
 /// Communication configuration for backend-frontend interaction
 /// This module defines and displays the available transport and serialization options
 
-use tracing::{info, debug};
+#[allow(unused_imports)]
+use tracing::info;
 use super::serialization::display_serialization_details;
 
 /// Available transport protocols for backend-frontend communication

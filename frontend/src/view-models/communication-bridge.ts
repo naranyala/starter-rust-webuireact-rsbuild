@@ -125,7 +125,6 @@ class CommunicationBridge {
     }
 
     try {
-      this.connectAttempts++;
       const attempt = this.reconnectAttempts + 1;
       console.log(`[CommunicationBridge] Connecting... (attempt ${attempt}/${this.maxReconnectAttempts})`);
       this.setConnectionState(ConnectionState.CONNECTING, `attempt_${attempt}`);
@@ -412,7 +411,8 @@ let communicationBridge: CommunicationBridge | null = null;
 
 export const initCommunicationBridge = (backendUrl?: string): CommunicationBridge => {
   if (!communicationBridge) {
-    communicationBridge = new CommunicationBridge(backendUrl);
+    // Default to WebSocket port 9000 (matching backend)
+    communicationBridge = new CommunicationBridge(backendUrl || 'ws://localhost:9000');
   }
   return communicationBridge;
 };

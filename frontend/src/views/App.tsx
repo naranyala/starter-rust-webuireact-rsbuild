@@ -4,7 +4,7 @@ import React, { useEffect } from 'react';
 import { Header } from './components/Header';
 import { Sidebar } from './components/Sidebar';
 import { MainContent } from './components/MainContent';
-import { WebSocketStatusPanel } from './components/WebSocketStatusPanel';
+import { BottomPanel } from './components/BottomPanel';
 import { useWebSocketStatus, useAppInitialization, useWindowManager } from './hooks/useAppLogic';
 import { useWindowOperations } from './hooks/useWindowOperations';
 import { Logger } from './utils/logger';
@@ -42,8 +42,7 @@ const App: React.FC = () => {
         updateSQLiteTable();
 
         // Emit data changed event
-        const emitEvent = EventBus.global();
-        emitEvent.emit_simple('data.changed', {
+        EventBus.emitSimple('data.changed', {
           table: 'users',
           count: response.data?.length || 0,
           action: 'loaded'
@@ -467,14 +466,14 @@ const App: React.FC = () => {
 
         <div className="main-container">
           <Header />
-          
+
           <MainContent
             onOpenSystemInfo={openSystemInfoWindow}
             onOpenSQLite={openSQLiteWindow}
           />
-          
-          <WebSocketStatusPanel wsStatus={wsStatus} />
         </div>
+
+        <BottomPanel wsStatus={wsStatus} />
       </div>
     </>
   );

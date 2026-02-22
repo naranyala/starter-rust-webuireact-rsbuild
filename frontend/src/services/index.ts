@@ -1,4 +1,3 @@
 // Services module exports
-export * from './utils';
-export * from './global-error-handler';
+export * from './error-logger';
 export * from './window-manager';

@@ -1,4 +1,5 @@
 // Hooks index
 
 export { useWebSocketStatus, useAppInitialization, useWindowManager } from './useAppLogic';
-export { useWindowOperations, useDatabaseOperations } from './useWindowOperations';
+export { useWindowOperations } from './useWindowOperations';
+// Note: useDatabaseOperations removed - functionality merged into useWindowOperations

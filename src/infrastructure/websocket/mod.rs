@@ -1,5 +1,7 @@
 //! WebSocket infrastructure - WebSocket server implementation
 
+#![allow(dead_code)]
+
 use futures_util::{SinkExt, StreamExt};
 use tokio::net::{TcpListener, TcpStream};
 use std::sync::Arc;
@@ -52,10 +54,10 @@ impl WebSocketServer {
         let event_bus_clone = event_bus.clone();
         
         tokio::spawn(async move {
-            let mut receiver = event_bus_clone.listen();
+            let mut receiver = event_bus_clone.listen().await;
             while let Ok(event) = receiver.recv().await {
                 if event.source != "frontend" {
-                    if let Ok(json) = serde_json::to_string(&*event) {
+                    if let Ok(json) = serde_json::to_string(&event) {
                         let _ = tx.send(json);
                     }
                 }
@@ -63,7 +65,7 @@ impl WebSocketServer {
         });
         
         // Forward messages from channel to WebSocket
-        let mut sink_task = tokio::spawn(async move {
+        let sink_task = tokio::spawn(async move {
             while let Some(json) = rx.recv().await {
                 if sink.send(tokio_tungstenite::tungstenite::Message::Text(json.into())).await.is_err() {
                     break;

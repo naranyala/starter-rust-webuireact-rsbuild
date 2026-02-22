@@ -1,33 +1,78 @@
 # Getting Started
 
-This guide helps you get started with the Rust WebUI React Rsbuild application.
+This guide provides complete setup and usage instructions for the Rust WebUI React Rsbuild application.
 
 ## Prerequisites
 
-Before building the project, ensure you have the following installed:
+### Required Software
 
-### Required Tools
+#### Rust Toolchain
 
-- **Rust**: Version 1.70 or later
-  - Install via rustup: `curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh`
-  - Verify: `rustc --version`
+Minimum version: 1.70
 
-- **Node.js**: Version 18 or later
-  - Install from: https://nodejs.org/
-  - Verify: `node --version`
+Installation:
+```bash
+curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh
+source $HOME/.cargo/env
+rustup update
+```
 
-- **Bun**: Version 1.0 or later (recommended) or npm
-  - Install: `curl -fsSL https://bun.sh/install | bash`
-  - Verify: `bun --version`
+Verification:
+```bash
+rustc --version
+cargo --version
+```
 
-### Optional Tools
+#### Bun Runtime
 
-- **Git**: For version control
-- **Cargo-watch**: For auto-rebuilding during development (`cargo install cargo-watch`)
+Minimum version: 1.0
 
-## Quick Start
+Installation:
+```bash
+curl -fsSL https://bun.sh/install | bash
+source ~/.bashrc  # or ~/.zshrc
+```
 
-### 1. Clone the Repository
+Verification:
+```bash
+bun --version
+```
+
+#### System Dependencies
+
+Linux (Debian/Ubuntu):
+```bash
+sudo apt-get update
+sudo apt-get install -y \
+    libwebkit2gtk-4.1-dev \
+    libgtk-3-dev \
+    libsoup-3.0-dev \
+    libjavascriptcoregtk-4.1-dev \
+    build-essential \
+    pkg-config
+```
+
+Linux (Fedora):
+```bash
+sudo dnf install -y \
+    webkit2gtk4.1-devel \
+    gtk3-devel \
+    libsoup3-devel \
+    javascriptcoregtk-4.1-devel
+```
+
+macOS:
+```bash
+xcode-select --install
+```
+
+Windows:
+- Install Visual Studio Build Tools with C++ workload
+- Install WebView2 runtime
+
+## Installation
+
+### 1. Clone Repository
 
 ```bash
 git clone <repository-url>
@@ -37,77 +82,99 @@ cd starter-rust-webuireact-rsbuild
 ### 2. Install Dependencies
 
 ```bash
-# Install Rust dependencies
+# Rust dependencies
 cargo fetch
 
-# Install frontend dependencies
+# Frontend dependencies
 cd frontend
 bun install
 cd ..
 ```
 
-### 3. Build and Run
+### 3. Verify Installation
 
 ```bash
-# Build and run the application
+# Check Rust compilation
+cargo check
+
+# Check frontend compilation
+cd frontend
+bun exec tsc --noEmit
+cd ..
+```
+
+## Quick Start
+
+### Build and Run
+
+```bash
 ./run.sh
 ```
 
-This command will:
-- Check prerequisites
-- Install frontend dependencies
-- Build the frontend
-- Build the Rust backend
-- Run the application
+This script performs:
+1. Prerequisites verification
+2. Frontend dependency installation
+3. Frontend production build
+4. Rust debug build
+5. Post-build configuration
+6. Application launch
+
+### First Run Experience
+
+On first execution:
+1. Configuration loaded from `app.config.toml`
+2. Logging system initialized
+3. SQLite database created at `app.db`
+4. Sample data inserted (4 users)
+5. WebSocket server started on port 9000
+6. HTTP server started on port 8080
+7. Application window opened
 
 ## Build Options
 
-### Full Build and Run
+### Standard Builds
 
 ```bash
+# Full build and run
 ./run.sh
-```
 
-### Build Only
-
-```bash
+# Build only (no run)
 ./run.sh --build
-```
 
-### Build Frontend Only
-
-```bash
+# Build frontend only
 ./run.sh --build-frontend
-```
 
-### Build Rust Backend Only
-
-```bash
+# Build Rust backend only
 ./run.sh --build-rust
 ```
 
-### Release Build
+### Release Builds
 
 ```bash
+# Optimized release build
 ./run.sh --release
+
+# Release with additional profiling
+cargo build --release --profile=profiling
 ```
 
-### Run Pre-built Binary
+### Maintenance
 
 ```bash
+# Clean all build artifacts
+./run.sh --clean
+
+# Clean and full rebuild
+./run.sh --rebuild
+
+# Run pre-built application
 ./run.sh --run
 ```
 
-### Clean Build Artifacts
+### Help
 
 ```bash
-./run.sh --clean
-```
-
-### Clean and Rebuild
-
-```bash
-./run.sh --rebuild
+./run.sh --help
 ```
 
 ## Manual Build Commands
@@ -117,13 +184,29 @@ This command will:
 ```bash
 cd frontend
 
-# Development build
+# Development mode with hot reload
 bun run dev
 
 # Production build
 bun run build
 
-# Clean build
+# Type checking
+bun exec tsc --noEmit
+
+# Linting
+bun run lint
+bun run lint:fix
+
+# Formatting
+bun run format
+bun run format:fix
+
+# Testing
+bun test
+bun test:watch
+bun test:coverage
+
+# Clean build cache
 bun run clean
 ```
 
@@ -139,18 +222,36 @@ cargo build --release
 # Run directly
 cargo run
 
+# Check without building
+cargo check
+
+# Run tests
+cargo test
+cargo test -- --nocapture
+
 # Watch for changes (requires cargo-watch)
 cargo watch -x run
+cargo watch -x check
+
+# Clean build artifacts
+cargo clean
+
+# Update dependencies
+cargo update
 ```
 
 ## Configuration
+
+### Configuration File
 
 The application uses `app.config.toml` for runtime configuration:
 
 ```toml
 [app]
-name = "Rust WebUI App"
+name = "Rust WebUI SQLite Demo"
 version = "1.0.0"
+description = "A Rust WebUI application with SQLite integration"
+author = "Developer"
 
 [database]
 path = "app.db"
@@ -168,6 +269,7 @@ resizable = true
 level = "info"
 file = "application.log"
 append = true
+webui_verbose = false
 
 [features]
 dark_mode = true
@@ -176,71 +278,185 @@ show_tray_icon = false
 
 ### Configuration Options
 
-#### App Section
-- `name`: Application display name
-- `version`: Application version
+#### Application Settings
 
-#### Database Section
-- `path`: SQLite database file path (relative to executable or absolute)
-- `create_sample_data`: Whether to create sample data on first run
+| Field | Type | Default | Description |
+|-------|------|---------|-------------|
+| name | string | - | Application display name |
+| version | string | 1.0.0 | Application version |
+| description | string | - | Application description |
+| author | string | - | Author information |
 
-#### Window Section
-- `title`: Window title
-- `width`: Initial window width
-- `height`: Initial window height
-- `min_width`: Minimum window width
-- `min_height`: Minimum window height
-- `resizable`: Whether window is resizable
+#### Database Settings
 
-#### Logging Section
-- `level`: Log level (debug, info, warn, error)
-- `file`: Log file name (empty to disable file logging)
-- `append`: Append to existing log file or overwrite
+| Field | Type | Default | Description |
+|-------|------|---------|-------------|
+| path | string | app.db | SQLite database path |
+| create_sample_data | boolean | true | Create sample data on first run |
 
-#### Features Section
-- `dark_mode`: Enable dark mode
-- `show_tray_icon`: Show system tray icon
+#### Window Settings
 
-## First Run
+| Field | Type | Default | Description |
+|-------|------|---------|-------------|
+| title | string | - | Window title |
+| width | integer | 1200 | Initial window width |
+| height | integer | 800 | Initial window height |
+| min_width | integer | 800 | Minimum window width |
+| min_height | integer | 600 | Minimum window height |
+| resizable | boolean | true | Allow window resizing |
 
-On first run, the application will:
+#### Logging Settings
 
-1. Load configuration from `app.config.toml`
-2. Initialize the logging system
-3. Create the SQLite database
-4. Insert sample data (if enabled)
-5. Start the WebSocket server on port 9000
-6. Start the HTTP server on port 8080
-7. Open the application window
+| Field | Type | Default | Description |
+|-------|------|---------|-------------|
+| level | string | info | Log level (debug, info, warn, error) |
+| file | string | application.log | Log file path |
+| append | boolean | true | Append to existing log |
+| webui_verbose | boolean | false | Verbose WebUI logging |
+
+#### Feature Settings
+
+| Field | Type | Default | Description |
+|-------|------|---------|-------------|
+| dark_mode | boolean | true | Enable dark mode |
+| show_tray_icon | boolean | false | Show system tray icon |
+
+### Environment Variables
+
+| Variable | Description | Default |
+|----------|-------------|---------|
+| RUST_LOG | Override log level | info |
+| APP_CONFIG | Custom config path | app.config.toml |
+| BUILD_LOG_FILE | Build log output path | build.log |
 
 ## Troubleshooting
 
-### Build Fails
+### Build Failures
 
-1. Ensure all prerequisites are installed
-2. Clean build artifacts: `./run.sh --clean`
-3. Rebuild: `./run.sh --rebuild`
+#### Rust Compilation Errors
 
-### Frontend Build Fails
+```bash
+# Update Rust toolchain
+rustup update
 
-1. Delete `node_modules`: `rm -rf frontend/node_modules`
-2. Reinstall: `cd frontend && bun install`
-3. Rebuild: `./run.sh --build-frontend`
+# Clean and rebuild
+cargo clean
+cargo build
 
-### Backend Build Fails
+# Check for missing system dependencies
+ldd target/debug/rustwebui-app
+```
 
-1. Update Rust: `rustup update`
-2. Clean: `cargo clean`
-3. Rebuild: `cargo build`
+#### Frontend Build Errors
 
-### Application Won't Start
+```bash
+# Clear node modules and cache
+cd frontend
+rm -rf node_modules
+rm -rf .rsbuild
+bun install
+bun run build
+```
 
-1. Check if ports 8080 and 9000 are available
-2. Check logs in `application.log`
-3. Run with debug logging: set `level = "debug"` in config
+#### Missing System Libraries
+
+Linux error: `libwebkit2gtk-4.1.so not found`
+```bash
+sudo apt-get install libwebkit2gtk-4.1-dev
+```
+
+Linux error: `libgtk-3.so not found`
+```bash
+sudo apt-get install libgtk-3-dev
+```
+
+### Runtime Issues
+
+#### Port Already in Use
+
+Error: `Address already in use`
+
+Solution:
+```bash
+# Check what is using the port
+lsof -i :8080
+lsof -i :9000
+
+# Kill the process
+kill -9 <PID>
+```
+
+#### Database Lock Issues
+
+```bash
+# Close application
+# Remove lock files
+rm app.db-shm app.db-wal
+
+# Restart application
+```
+
+#### WebSocket Connection Failed
+
+1. Verify backend is running
+2. Check browser console for errors
+3. Verify port 9000 is accessible
+4. Check firewall settings
+
+#### Application Window Not Opening
+
+1. Check WebUI dependencies are installed
+2. Verify display server is running
+3. Check application logs for errors
+
+### Log Analysis
+
+```bash
+# View application logs
+tail -f application.log
+
+# Search for errors
+grep "ERROR" application.log
+
+# Search by timestamp
+grep "2024-" application.log
+```
+
+### Performance Issues
+
+#### High Memory Usage
+
+```bash
+# Check memory usage
+ps aux | grep rustwebui-app
+
+# Enable debug logging to identify issues
+# Set level = "debug" in app.config.toml
+```
+
+#### Slow Database Queries
+
+```bash
+# Enable SQLite query logging
+# Check database size
+sqlite3 app.db "SELECT page_count * page_size as size FROM pragma_page_count(), pragma_page_size();"
+
+# Vacuum database
+sqlite3 app.db "VACUUM;"
+```
 
 ## Next Steps
 
-- Read the [Architecture Guide](./architecture.md) to understand the project structure
-- Read the [Development Guide](./development.md) for development workflows
-- Read the [API Reference](./api-reference.md) for backend and frontend APIs
+After successful installation:
+
+1. Read the [Architecture Guide](./02-architecture.md) to understand system design
+2. Read the [Development Guide](./03-development.md) for development workflows
+3. Read the [API Reference](./04-api-reference.md) for API documentation
+4. Explore the [Testing Guide](../TESTING.md) for testing strategies
+
+## Support Resources
+
+- Issue Tracker: GitHub Issues
+- Documentation: docs/ directory
+- Architecture: ARCHITECTURE.md
+- Testing: TESTING.md

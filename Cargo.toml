@@ -1,7 +1,7 @@
 [package]
 name = "rustwebui-app"
 version = "1.0.0"
-edition = "2024"
+edition = "2021"
 
 [dependencies]
 webui-rs = { git = "https://github.com/webui-dev/rust-webui", branch = "main" }

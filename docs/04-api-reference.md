@@ -1,6 +1,6 @@
 # API Reference
 
-This document provides detailed API documentation for both backend and frontend.
+This document provides comprehensive API documentation for backend and frontend.
 
 ## Backend API
 
@@ -8,7 +8,7 @@ This document provides detailed API documentation for both backend and frontend.
 
 #### AppConfig
 
-Configuration structure loaded from `app.config.toml`.
+Main configuration structure loaded from app.config.toml.
 
 ```rust
 pub struct AppConfig {
@@ -19,17 +19,61 @@ pub struct AppConfig {
 }
 ```
 
-#### Methods
+#### AppSettings
 
 ```rust
-// Load configuration from file
+pub struct AppSettings {
+    pub name: String,
+    pub version: String,
+    pub description: String,
+    pub author: String,
+}
+```
+
+#### DatabaseSettings
+
+```rust
+pub struct DatabaseSettings {
+    pub path: String,
+    pub create_sample_data: Option<bool>,
+}
+```
+
+#### WindowSettings
+
+```rust
+pub struct WindowSettings {
+    pub title: String,
+    pub width: i32,
+    pub height: i32,
+    pub min_width: i32,
+    pub min_height: i32,
+    pub resizable: bool,
+}
+```
+
+#### LoggingSettings
+
+```rust
+pub struct LoggingSettings {
+    pub level: String,
+    pub file: String,
+    pub append: Option<bool>,
+    pub webui_verbose: bool,
+}
+```
+
+#### AppConfig Methods
+
+```rust
 impl AppConfig {
+    /// Load configuration from file
     pub fn load() -> Result<Self, Box<dyn std::error::Error>>;
-    
-    // Get default configuration
+
+    /// Get default configuration
     pub fn default() -> Self;
-    
-    // Getters
+
+    /// Getters
     pub fn get_app_name(&self) -> &str;
     pub fn get_version(&self) -> &str;
     pub fn get_db_path(&self) -> &str;
@@ -45,7 +89,7 @@ impl AppConfig {
 
 #### Database
 
-SQLite database wrapper.
+SQLite database wrapper with connection management.
 
 ```rust
 pub struct Database {
@@ -53,24 +97,24 @@ pub struct Database {
 }
 ```
 
-#### Methods
+#### Database Methods
 
 ```rust
 impl Database {
-    // Create new database connection
+    /// Create new database connection
     pub fn new(db_path: &str) -> Result<Self, Box<dyn std::error::Error>>;
-    
-    // Initialize database schema
+
+    /// Initialize database schema
     pub fn init(&self) -> Result<(), Box<dyn std::error::Error>>;
-    
-    // Insert sample data
+
+    /// Insert sample data if not exists
     pub fn insert_sample_data(&self) -> Result<(), Box<dyn std::error::Error>>;
-    
-    // Get all users
-    pub fn get_all_users(&self) -> Result<Vec<User>, Box<dyn std::error::Error>>;
-    
-    // Get database statistics
-    pub fn get_stats(&self) -> Result<DatabaseStats, Box<dyn std::error::Error>>;
+
+    /// Get all users
+    pub fn get_all_users(&self) -> Result<Vec<serde_json::Value>, Box<dyn std::error::Error>>;
+
+    /// Get database statistics
+    pub fn get_db_stats(&self) -> Result<serde_json::Value, Box<dyn std::error::Error>>;
 }
 ```
 
@@ -78,29 +122,12 @@ impl Database {
 
 #### EventBus
 
-Publish-subscribe event system.
+Publish-subscribe event system for inter-component communication.
 
 ```rust
 pub struct EventBus {
-    sender: broadcast::Sender<Arc<Event>>,
-}
-```
-
-#### Methods
-
-```rust
-impl EventBus {
-    // Get global event bus instance
-    pub fn global() -> Arc<Self>;
-    
-    // Emit an event
-    pub async fn emit(&self, event: Event) -> Result<(), broadcast::error::SendError<Arc<Event>>>;
-    
-    // Emit a simple event
-    pub async fn emit_simple(&self, name: &str, payload: Value) -> Result<(), broadcast::error::SendError<Arc<Event>>>;
-    
-    // Subscribe to events
-    pub fn listen(&self) -> EventReceiver;
+    subscribers: Arc<RwLock<HashMap<String, Vec<EventHandler>>>>,
+    broadcast_sender: broadcast::Sender<Event>,
 }
 ```
 
@@ -110,8 +137,65 @@ impl EventBus {
 pub struct Event {
     pub id: String,
     pub name: String,
-    pub payload: Value,
+    pub payload: serde_json::Value,
     pub source: String,
+}
+```
+
+#### EventBus Methods
+
+```rust
+impl EventBus {
+    /// Get global event bus instance
+    pub fn global() -> Arc<EventBus>;
+
+    /// Check if event bus is initialized
+    pub fn is_initialized() -> bool;
+
+    /// Emit an event
+    pub async fn emit(&self, event: Event) -> Result<(), Box<dyn std::error::Error>>;
+
+    /// Emit a simple event
+    pub async fn emit_simple(
+        &self, 
+        name: &str, 
+        payload: serde_json::Value
+    ) -> Result<(), Box<dyn std::error::Error>>;
+
+    /// Subscribe to events
+    pub fn subscribe<F>(
+        &self, 
+        event_name: &str, 
+        handler: F
+    ) -> Result<(), Box<dyn std::error::Error>>
+    where
+        F: Fn(&Event) -> Result<(), Box<dyn std::error::Error + Send + Sync>> 
+            + Send + Sync + 'static;
+
+    /// Listen for events
+    pub async fn listen(&self) -> broadcast::Receiver<Event>;
+}
+```
+
+#### AppEventType
+
+Predefined event types for type-safe event handling.
+
+```rust
+pub enum AppEventType {
+    UserLogin,
+    UserLogout,
+    DataChanged,
+    CounterIncremented,
+    DatabaseOperation,
+    SystemHealthCheck,
+    FrontendConnected,
+    FrontendDisconnected,
+    WindowStateChanged,
+}
+
+impl ToString for AppEventType {
+    fn to_string(&self) -> String;
 }
 ```
 
@@ -119,22 +203,12 @@ pub struct Event {
 
 #### WebSocketHandler
 
-WebSocket server for real-time communication.
+WebSocket server for real-time bidirectional communication.
 
 ```rust
 pub struct WebSocketHandler {
     event_bus: Arc<EventBus>,
     connection_notify: Arc<Notify>,
-}
-```
-
-#### Methods
-
-```rust
-impl WebSocketHandler {
-    pub fn new(event_bus: Arc<EventBus>) -> Self;
-    
-    pub async fn start_server(&self, addr: &str) -> Result<(), Box<dyn std::error::Error + Send + Sync>>;
 }
 ```
 
@@ -144,9 +218,61 @@ impl WebSocketHandler {
 pub struct WebSocketEvent {
     pub id: String,
     pub name: String,
-    pub payload: Value,
+    pub payload: serde_json::Value,
     pub timestamp: u64,
     pub source: String,
+}
+```
+
+#### WebSocketHandler Methods
+
+```rust
+impl WebSocketHandler {
+    pub fn new(event_bus: Arc<EventBus>) -> Self;
+
+    pub async fn start_server(
+        &self, 
+        addr: &str
+    ) -> Result<(), Box<dyn std::error::Error + Send + Sync>>;
+}
+```
+
+#### Connection States
+
+```rust
+pub enum ConnectionState {
+    Initialized,
+    TcpConnecting,
+    TcpConnected,
+    HandshakeInitiated,
+    HandshakeCompleted,
+    Authenticating,
+    Authenticated,
+    Ready,
+    Processing,
+    Sending,
+    Receiving,
+    Closing,
+    Closed,
+    Error(ConnectionError),
+    Terminated,
+}
+```
+
+#### Connection Errors
+
+```rust
+pub enum ConnectionError {
+    TcpBindFailed(String),
+    TcpAcceptFailed(String),
+    HandshakeTimeout,
+    HandshakeFailed(String),
+    InvalidMessage(String),
+    SerializationError(String),
+    SendError(String),
+    ReceiveError(String),
+    ChannelClosed,
+    Unknown(String),
 }
 ```
 
@@ -155,46 +281,95 @@ pub struct WebSocketEvent {
 #### UI Handlers
 
 ```rust
-// Setup UI event handlers
+/// Setup basic UI event handlers
 pub fn setup_ui_handlers(window: &mut webui::Window);
 
-// Setup counter handlers
+/// Setup counter-specific handlers
 pub fn setup_counter_handlers(window: &mut webui::Window);
 
-// Setup database handlers
+/// Setup database handlers
 pub fn setup_db_handlers(window: &mut webui::Window);
 
-// Setup system info handlers
+/// Setup system info handlers
 pub fn setup_sysinfo_handlers(window: &mut webui::Window);
 
-// Setup utility handlers
+/// Setup utility handlers
 pub fn setup_utils_handlers(window: &mut webui::Window);
 
-// Setup advanced handlers
+/// Setup advanced handlers
 pub fn setup_advanced_handlers(window: &mut webui::Window);
 
-// Setup enhanced handlers
+/// Setup enhanced handlers
 pub fn setup_enhanced_handlers(window: &mut webui::Window);
 ```
 
-#### Handler Functions
+#### Database Handlers
+
+Bound events:
+- get_users: Retrieve all users from database
+- get_db_stats: Get database statistics
+
+#### System Info Handlers
+
+Bound events:
+- get_system_info: Get system information
+
+#### Utility Handlers
+
+Bound events:
+- open_folder: Open folder dialog
+- organize_images: Organize images utility
+
+### DevTools API
+
+#### DevToolsApi
+
+API for exposing backend internals to frontend devtools.
 
 ```rust
-// Counter handlers
-pub fn increment_counter(event: webui::Event);
-pub fn reset_counter(event: webui::Event);
-pub fn get_counter_value(event: webui::Event);
+pub struct DevToolsApi {
+    start_time: DateTime<Utc>,
+}
+```
 
-// Database handlers
-pub fn get_users(event: webui::Event);
-pub fn get_db_stats(event: webui::Event);
+#### DevToolsApi Methods
 
-// System info handlers
-pub fn get_system_info(event: webui::Event);
+```rust
+impl DevToolsApi {
+    pub fn new() -> Self;
 
-// Utility handlers
-pub fn open_folder(event: webui::Event);
-pub fn organize_images(event: webui::Event);
+    /// Get system metrics
+    pub fn get_system_metrics(&self) -> SystemMetrics;
+
+    /// Get configuration snapshot
+    pub fn get_config(&self) -> ConfigSnapshot;
+
+    /// Get active WebSocket connections
+    pub fn get_websocket_connections(&self) -> Vec<WebSocketConnectionInfo>;
+
+    /// Get recent errors
+    pub fn get_recent_errors(&self) -> Vec<DevToolsErrorEntry>;
+
+    /// Execute a command
+    pub fn execute_command(
+        &self, 
+        command: &str, 
+        args: serde_json::Value
+    ) -> serde_json::Value;
+}
+```
+
+#### SystemMetrics
+
+```rust
+pub struct SystemMetrics {
+    pub timestamp: DateTime<Utc>,
+    pub uptime_secs: u64,
+    pub memory: MemoryMetrics,
+    pub connections: ConnectionMetrics,
+    pub database: DatabaseMetrics,
+    pub events: EventMetrics,
+}
 ```
 
 ## Frontend API
@@ -203,17 +378,36 @@ pub fn organize_images(event: webui::Event);
 
 #### EventBus
 
-Frontend event management.
+Frontend event management singleton.
 
 ```typescript
 export class EventBus {
-  private static instance: EventBus;
-  
-  static getInstance(): EventBus;
-  
-  emit(eventType: AppEventType, payload: any): void;
-  subscribe(eventType: AppEventType, callback: (event: Event) => void): () => void;
-  unsubscribe(eventType: AppEventType, token: string): void;
+  private subscribers: Map<string, Set<EventHandler>>;
+  private broadcastCallbacks: Set<EventHandler>;
+
+  /// Subscribe to specific event
+  subscribe(eventName: string, handler: EventHandler): () => void;
+
+  /// Subscribe to all events
+  subscribeAll(handler: EventHandler): () => void;
+
+  /// Emit event
+  emit(eventName: string, payload: EventPayload, source?: string): void;
+
+  /// Emit simple event
+  emitSimple(eventName: string, payload: EventPayload): void;
+}
+```
+
+#### Event
+
+```typescript
+export interface Event {
+  id: string;
+  name: string;
+  payload: EventPayload;
+  timestamp: number;
+  source: string;
 }
 ```
 
@@ -221,103 +415,267 @@ export class EventBus {
 
 ```typescript
 export enum AppEventType {
+  USER_LOGIN = 'user.login',
+  USER_LOGOUT = 'user.logout',
+  DATA_CHANGED = 'data.changed',
+  COUNTER_INCREMENTED = 'counter.incremented',
+  DATABASE_OPERATION = 'database.operation',
+  SYSTEM_HEALTH_CHECK = 'system.health.check',
+  BACKEND_CONNECTED = 'backend.connected',
+  BACKEND_DISCONNECTED = 'backend.disconnected',
+  BACKEND_CONNECTION_STATE = 'backend.connection_state',
+  BACKEND_ERROR = 'backend.error',
   APP_START = 'app.start',
   APP_SHUTDOWN = 'app.shutdown',
   UI_READY = 'ui.ready',
-  BACKEND_CONNECTED = 'backend.connected',
-  BACKEND_DISCONNECTED = 'backend.disconnected',
-  DATA_CHANGED = 'data.changed',
-  WINDOW_STATE_CHANGE = 'window.state.change',
+  WINDOW_STATE_CHANGED = 'window.state.changed',
 }
 ```
 
-#### Hooks
+#### Event Hooks
 
 ```typescript
-// Subscribe to events
-export function useEventBus<T>(
-  eventType: AppEventType,
-  callback: (event: Event<T>) => void
+/// Subscribe to events in React components
+export function useEventBus(
+  eventName: string, 
+  handler: EventHandler
 ): void;
 
-// Emit events
-export function useEventEmitter(): (eventType: AppEventType, payload: any) => void;
+/// Emit events from React components
+export function useEventEmitter(): (
+  eventName: string, 
+  payload?: EventPayload
+) => void;
 ```
 
 ### Communication Bridge API
 
 #### CommunicationBridge
 
-WebSocket connection management.
+WebSocket connection management for backend communication.
 
 ```typescript
 export class CommunicationBridge {
-  private static instance: CommunicationBridge;
-  
-  static getInstance(): CommunicationBridge;
-  
-  // Call backend function
-  call(functionName: string, data?: any): Promise<any>;
-  
-  // Subscribe to backend events
-  subscribe(handler: (event: any) => void): void;
-  
-  // Connection status
-  isConnected(): boolean;
+  private ws: WebSocket | null;
+  private connectionState: ConnectionState;
+  private reconnectAttempts: number;
+  private stats: ConnectionStats;
+
+  /// Call backend function
+  sendToBackend(eventType: string, payload: any): boolean;
+
+  /// Check connection status
+  isConnectedToBackend(): boolean;
+
+  /// Get connection state
   getConnectionState(): ConnectionState;
-  getReadyState(): number;
-  getLastError(): Error | null;
+
+  /// Get connection status
+  getConnectionStatus(): {
+    connected: boolean;
+    state: ConnectionState;
+    url: string;
+    attempts: number;
+    stats: ConnectionStats;
+    lastError: ConnectionError | null;
+  };
+
+  /// Get statistics
+  getStats(): ConnectionStats;
+
+  /// Manual reconnect
+  reconnect(): void;
+
+  /// Manual disconnect
+  disconnect(): void;
+
+  /// Get last error
+  getLastError(): ConnectionError | null;
 }
 ```
 
 #### Connection State
 
 ```typescript
-export interface ConnectionState {
-  state: 'connecting' | 'connected' | 'reconnecting' | 'closed' | 'error';
-  reconnectAttempts: number;
+export enum ConnectionState {
+  UNINSTANTIATED = 'uninstantiated',
+  CONNECTING = 'connecting',
+  OPEN = 'open',
+  READY = 'ready',
+  CLOSING = 'closing',
+  CLOSED = 'closed',
+  RECONNECTING = 'reconnecting',
+  ERROR = 'error',
 }
 ```
 
-### Window Manager API
-
-#### WindowManager
-
-WinBox.js window management.
+#### Error Type
 
 ```typescript
-export class WindowManager {
-  private windows: Map<string, WindowInfo>;
-  
-  // Register window
-  registerWindow(id: string, title: string, winboxInstance: any): WindowInfo;
-  
-  // Get windows
-  getFocusedWindow(): WindowInfo | null;
-  getAllWindows(): WindowInfo[];
-  getWindowById(id: string): WindowInfo | null;
-  
-  // Window operations
-  focusWindow(id: string): void;
-  blurWindow(id: string): void;
-  minimizeWindow(id: string): void;
-  restoreWindow(id: string): void;
-  maximizeWindow(id: string): void;
-  closeWindow(id: string): void;
+export enum ErrorType {
+  CONNECTION_REFUSED = 'CONNECTION_REFUSED',
+  CONNECTION_TIMEOUT = 'CONNECTION_TIMEOUT',
+  PROTOCOL_ERROR = 'PROTOCOL_ERROR',
+  SERIALIZATION_ERROR = 'SERIALIZATION_ERROR',
+  TRANSPORT_ERROR = 'TRANSPORT_ERROR',
+  SOCKET_ERROR = 'SOCKET_ERROR',
+  PARSE_ERROR = 'PARSE_ERROR',
+  TIMEOUT = 'TIMEOUT',
+  UNKNOWN = 'UNKNOWN',
 }
 ```
 
-#### WindowInfo
+#### Connection Error
 
 ```typescript
-export interface WindowInfo {
+export interface ConnectionError {
+  type: ErrorType;
+  message: string;
+  timestamp: number;
+  details?: Record<string, unknown>;
+}
+```
+
+#### Connection Stats
+
+```typescript
+export interface ConnectionStats {
+  messagesSent: number;
+  messagesReceived: number;
+  bytesSent: number;
+  bytesReceived: number;
+  errorsCount: number;
+  reconnects: number;
+  connectAttempts: number;
+  lastMessageAt: number | null;
+  lastError: ConnectionError | null;
+  connectionStartTime: number;
+}
+```
+
+#### Helper Functions
+
+```typescript
+/// Initialize communication bridge
+export function initCommunicationBridge(
+  backendUrl?: string
+): CommunicationBridge;
+
+/// Get communication bridge instance
+export function getCommunicationBridge(): CommunicationBridge | null;
+
+/// Send event to backend
+export function sendEventToBackend(
+  eventType: string, 
+  payload: any
+): void;
+
+/// Check backend connection
+export function isBackendConnected(): boolean;
+
+/// Get backend connection status
+export function getBackendConnectionStatus(): {
+  connected: boolean;
+  state: ConnectionState;
+  url: string;
+  attempts: number;
+  stats: ConnectionStats;
+  lastError: ConnectionError | null;
+} | null;
+```
+
+### Error Logger API
+
+#### ErrorLogger
+
+Comprehensive error logging for frontend.
+
+```typescript
+export class ErrorLoggerClass {
+  /// Log error with context
+  logError(
+    category: string,
+    error: Error | string,
+    context?: ErrorContext,
+    severity?: ErrorSeverity,
+    suggestion?: string
+  ): string;
+
+  /// Log with automatic context
+  logErrorAuto(
+    category: string,
+    error: Error,
+    suggestion?: string
+  ): string;
+
+  /// Log network errors
+  logNetworkError(
+    operation: string,
+    error: Error | unknown,
+    url?: string
+  ): string;
+
+  /// Log API errors
+  logApiError(
+    endpoint: string,
+    status: number,
+    statusText: string,
+    responseBody?: string
+  ): string;
+
+  /// Get error history
+  getHistory(): ErrorLogEntry[];
+
+  /// Clear error history
+  clearHistory(): void;
+
+  /// Get errors by severity
+  getErrorsBySeverity(severity: ErrorSeverity): ErrorLogEntry[];
+
+  /// Export errors
+  exportErrors(): string;
+}
+```
+
+#### Error Context
+
+```typescript
+export interface ErrorContext {
+  module?: string;
+  function?: string;
+  file?: string;
+  line?: number;
+  userId?: string;
+  sessionId?: string;
+  [key: string]: unknown;
+}
+```
+
+#### Error Severity
+
+```typescript
+export type ErrorSeverity = 
+  | 'debug' 
+  | 'info' 
+  | 'warning' 
+  | 'error' 
+  | 'critical' 
+  | 'fatal';
+```
+
+#### Error Log Entry
+
+```typescript
+export interface ErrorLogEntry {
   id: string;
-  title: string;
-  minimized: boolean;
-  maximized?: boolean;
-  focused: boolean;
-  winboxInstance: any;
-  createdAt: number;
+  timestamp: string;
+  severity: ErrorSeverity;
+  category: string;
+  message: string;
+  context: ErrorContext;
+  stack?: string;
+  source?: string;
+  suggestion?: string;
 }
 ```
 
@@ -325,7 +683,7 @@ export interface WindowInfo {
 
 #### Logger
 
-Logging utility.
+Logging utility for frontend.
 
 ```typescript
 export interface Logger {
@@ -336,42 +694,28 @@ export interface Logger {
 }
 ```
 
-### Global Error Handler API
+## WebSocket Protocol
 
-#### GlobalErrorHandler
-
-Global error handling setup.
-
-```typescript
-export function initGlobalErrorHandlers(): void;
-
-export class ErrorBoundary extends Component<Props, State> {
-  // React error boundary component
-}
-```
-
-## WebSocket Message Format
-
-### Request
+### Request Message Format
 
 ```typescript
 {
-  id: string;           // Unique message ID
-  name: string;         // Function name
+  id: string;           // Unique message ID (random string)
+  name: string;         // Function/event name
   payload: any;         // Function parameters
   timestamp: number;    // Unix timestamp in milliseconds
   source: 'frontend';   // Message source
 }
 ```
 
-### Response
+### Response Message Format
 
 ```typescript
 {
   id: string;           // Original message ID
-  name: string;         // Function name
+  name: string;         // Function/event name
   payload: {
-    success: boolean;   // Operation success
+    success: boolean;   // Operation success status
     data?: any;         // Response data
     error?: string;     // Error message if failed
   };
@@ -380,9 +724,21 @@ export class ErrorBoundary extends Component<Props, State> {
 }
 ```
 
+### Event Message Format
+
+```typescript
+{
+  id: string;           // Unique event ID
+  name: string;         // Event name
+  payload: any;         // Event data
+  timestamp: number;    // Unix timestamp in milliseconds
+  source: 'backend' | 'frontend';
+}
+```
+
 ## Event Payloads
 
-### App Start
+### App Start Event
 
 ```typescript
 {
@@ -392,7 +748,7 @@ export class ErrorBoundary extends Component<Props, State> {
 }
 ```
 
-### UI Ready
+### UI Ready Event
 
 ```typescript
 {
@@ -401,15 +757,17 @@ export class ErrorBoundary extends Component<Props, State> {
 }
 ```
 
-### Backend Connected
+### Backend Connected Event
 
 ```typescript
 {
   message: string;
+  timestamp: number;
+  url: string;
 }
 ```
 
-### Data Changed
+### Data Changed Event
 
 ```typescript
 {
@@ -419,7 +777,7 @@ export class ErrorBoundary extends Component<Props, State> {
 }
 ```
 
-### Window State Change
+### Window State Changed Event
 
 ```typescript
 {
@@ -434,33 +792,113 @@ export class ErrorBoundary extends Component<Props, State> {
 }
 ```
 
+### Database Operation Event
+
+```typescript
+{
+  operation: string;
+  table?: string;
+  count?: number;
+  error?: string;
+}
+```
+
 ## Error Codes
 
-### Backend Errors
+### Backend Error Codes
 
-| Code | Description |
+| Code | Name | Description |
+|------|------|-------------|
+| 1000 | ENTITY_NOT_FOUND | Requested entity does not exist |
+| 1001 | VALIDATION_FAILED | Input validation failed |
+| 1002 | BUSINESS_RULE_VIOLATION | Business rule violated |
+| 1003 | INVALID_STATE_TRANSITION | Invalid state change |
+| 2000 | DATABASE_ERROR | Database operation failed |
+| 2001 | CONNECTION_FAILED | Connection establishment failed |
+| 2002 | TIMEOUT | Operation timed out |
+| 2003 | SERIALIZATION_ERROR | Data serialization failed |
+| 3000 | COMMAND_FAILED | Command execution failed |
+| 3001 | QUERY_FAILED | Query execution failed |
+| 3002 | HANDLER_ERROR | Handler execution failed |
+| 4000 | UI_ERROR | UI operation failed |
+| 4001 | COMMUNICATION_ERROR | Communication failed |
+| 5000 | PLUGIN_ERROR | Plugin operation failed |
+| 5001 | PLUGIN_NOT_FOUND | Plugin not found |
+| 5002 | PLUGIN_CAPABILITY_NOT_FOUND | Plugin capability not found |
+| 9999 | UNKNOWN | Unknown error |
+
+### Frontend Error Types
+
+| Type | Description |
 |------|-------------|
-| 1000 | Entity not found |
-| 1001 | Validation failed |
-| 1002 | Business rule violation |
-| 2000 | Database error |
-| 2001 | Connection failed |
-| 2002 | Timeout |
-| 2003 | Serialization error |
-| 3000 | Command failed |
-| 3001 | Query failed |
-| 4000 | UI error |
-| 4001 | Communication error |
-
-### Frontend Errors
-
-| Error Type | Description |
-|------------|-------------|
-| CONNECTION_ERROR | WebSocket connection failed |
-| TIMEOUT_ERROR | Request timeout |
+| CONNECTION_REFUSED | WebSocket connection refused |
+| CONNECTION_TIMEOUT | Connection attempt timed out |
+| PROTOCOL_ERROR | WebSocket protocol violation |
+| SERIALIZATION_ERROR | Message serialization failed |
+| TRANSPORT_ERROR | Network transport error |
+| SOCKET_ERROR | WebSocket socket error |
 | PARSE_ERROR | Response parsing failed |
-| VALIDATION_ERROR | Input validation failed |
-| UNKNOWN_ERROR | Unknown error |
+| TIMEOUT | Request timeout |
+| UNKNOWN | Unknown error |
+
+## HTTP API Endpoints
+
+### DevTools Endpoints
+
+#### GET /api/devtools/metrics
+
+Returns system metrics.
+
+Response:
+```json
+{
+  "timestamp": "2024-01-01T00:00:00Z",
+  "uptime_secs": 3600,
+  "memory": {
+    "process_memory_mb": 50.5,
+    "available_system_mb": 8192
+  },
+  "connections": {
+    "websocket_active": 1,
+    "http_requests_total": 100
+  },
+  "database": {
+    "tables": [
+      {"name": "users", "row_count": 4}
+    ],
+    "total_records": 4
+  },
+  "events": {
+    "total_emitted": 50,
+    "recent_events": []
+  }
+}
+```
+
+#### GET /api/devtools/health
+
+Returns health status.
+
+Response:
+```json
+{
+  "status": "healthy",
+  "uptime_secs": 3600,
+  "version": "1.0.0"
+}
+```
+
+#### GET /api/devtools/info
+
+Returns application info.
+
+Response:
+```json
+{
+  "rust_version": "1.0.0",
+  "debug": false
+}
+```
 
 ## Next Steps
 

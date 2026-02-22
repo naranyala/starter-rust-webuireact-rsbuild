@@ -8,13 +8,15 @@ use webui_rs::webui;
 mod model;
 mod infrastructure;
 mod viewmodel;
+mod tests;
+mod presentation;
 
 use model::core::{init_logging_with_config, AppConfig, Database};
 
 use infrastructure::event_bus::EventBus;
+use infrastructure::logging::error_logger;
 
 use viewmodel::websocket_handler::start_websocket_server;
-
 use viewmodel::handlers::*;
 
 // Build-time generated config
@@ -22,6 +24,7 @@ include!(concat!(env!("OUT_DIR"), "/build_config.rs"));
 
 fn start_http_server(port: u16) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
     let frontend_path = std::path::PathBuf::from("frontend/dist");
+    let devtools_api = crate::presentation::devtools::DevToolsApi::new();
 
     info!("Starting HTTP server on port {} for frontend files", port);
     info!(
@@ -270,7 +273,47 @@ fn start_http_server(port: u16) -> Result<(), Box<dyn std::error::Error + Send +
                 
                 continue; // Skip the rest of the processing
             }
-            
+
+            // Handle DevTools API requests
+            if url.starts_with("/api/devtools/") {
+                let response_data = match url.as_str() {
+                    "/api/devtools/metrics" => {
+                        serde_json::to_string(&devtools_api.get_system_metrics()).unwrap_or_default()
+                    }
+                    "/api/devtools/health" => {
+                        serde_json::to_string(&devtools_api.execute_command("health", serde_json::json!({}))).unwrap_or_default()
+                    }
+                    "/api/devtools/info" => {
+                        serde_json::to_string(&devtools_api.execute_command("info", serde_json::json!({}))).unwrap_or_default()
+                    }
+                    _ => {
+                        serde_json::json!({ "error": "Unknown DevTools endpoint" }).to_string()
+                    }
+                };
+
+                let response = tiny_http::Response::from_data(response_data)
+                    .with_header(
+                        tiny_http::Header::from_bytes(
+                            &b"Content-Type"[..],
+                            b"application/json",
+                        )
+                        .unwrap(),
+                    )
+                    .with_header(
+                        tiny_http::Header::from_bytes(
+                            &b"Access-Control-Allow-Origin"[..],
+                            b"*",
+                        )
+                        .unwrap(),
+                    );
+
+                if let Err(e) = request.respond(response) {
+                    error!(error = %e, "Error sending DevTools API response");
+                }
+
+                continue;
+            }
+
             let path = if url == "/" {
                 frontend_path.join("index.html")
             } else {
@@ -320,27 +363,46 @@ async fn main() {
     // Load application configuration
     let config = match AppConfig::load() {
         Ok(config) => {
-            println!("Configuration loaded successfully!");
-            println!(
-                "Application: {} v{}",
+            eprintln!("\x1b[32m✓ Configuration loaded successfully!\x1b[0m");
+            eprintln!("\x1b[36m  Application: {} v{}\x1b[0m",
                 config.get_app_name(),
                 config.get_version()
             );
             config
         }
-        Err(e) => {
-            error!(error = %e, "Failed to load configuration, using default configuration");
+        Err(ref e) => {
+            error_logger::log_error_with_severity(
+                "config_load_error",
+                e.as_ref(),
+                error_logger::ErrorContext::new()
+                    .with_module("main")
+                    .with_function("main")
+                    .with_file(line!()),
+                error_logger::ErrorSeverity::Warning,
+                None,
+            );
+            eprintln!("\x1b[33m⚠ Failed to load configuration, using defaults\x1b[0m");
             AppConfig::default()
         }
     };
 
     // Initialize logging system with config settings
-    if let Err(e) = init_logging_with_config(
+    if let Err(ref e) = init_logging_with_config(
         Some(config.get_log_file()),
         config.get_log_level(),
         config.is_append_log(),
     ) {
-        error!(error = %e, "Failed to initialize logger");
+        error_logger::log_error_with_severity(
+            "logging_init",
+            e.as_ref(),
+            error_logger::ErrorContext::new()
+                .with_module("main")
+                .with_function("main")
+                .with_file(line!()),
+            error_logger::ErrorSeverity::Critical,
+            Some("Check file permissions and disk space"),
+        );
+        eprintln!("\x1b[31m✗ Failed to initialize logger\x1b[0m");
         return;
     }
 

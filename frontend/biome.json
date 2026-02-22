@@ -1,6 +1,13 @@
 {
   "$schema": "https://biomejs.dev/schemas/2.3.14/schema.json",
+  "vcs": {
+    "enabled": false,
+    "clientKind": "git",
+    "useIgnoreFile": false,
+    "defaultBranch": "main"
+  },
   "assist": {
+    "enabled": true,
     "actions": {
       "source": {
         "organizeImports": "on"
@@ -11,25 +18,106 @@
     "enabled": true,
     "indentStyle": "space",
     "indentWidth": 2,
-    "lineWidth": 100
+    "lineWidth": 100,
+    "lineEnding": "lf",
+    "attributePosition": "auto",
+    "bracketSameLine": false,
+    "bracketSpacing": true
   },
   "javascript": {
     "formatter": {
       "quoteStyle": "single",
-      "trailingCommas": "es5"
+      "trailingCommas": "es5",
+      "semicolons": "always",
+      "arrowParentheses": "always",
+      "jsxQuoteStyle": "double",
+      "quoteProperties": "asNeeded"
+    },
+    "parser": {
+      "unsafeParameterDecoratorsEnabled": false
+    },
+    "globals": ["window", "document", "navigator", "crypto", "CustomEvent", "EventListener", "WebSocket", "Event", "TextEncoder", "TextDecoder", "React", "JSX"]
+  },
+  "json": {
+    "formatter": {
+      "indentStyle": "space",
+      "indentWidth": 2,
+      "lineWidth": 100,
+      "trailingCommas": "none"
+    },
+    "parser": {
+      "allowComments": true,
+      "allowTrailingCommas": false
     }
   },
   "linter": {
     "enabled": true,
     "rules": {
       "recommended": true,
+      "correctness": {
+        "noUnusedImports": "warn",
+        "noUnusedVariables": "warn",
+        "useExhaustiveDependencies": "warn",
+        "useHookAtTopLevel": "warn"
+      },
+      "style": {
+        "noNonNullAssertion": "warn",
+        "useConst": "warn",
+        "useImportType": "warn",
+        "useNodejsImportProtocol": "off"
+      },
       "suspicious": {
-        "noConsole": "off"
+        "noConsole": "off",
+        "noExplicitAny": "warn",
+        "noArrayIndexKey": "warn",
+        "noConfusingVoidType": "warn"
+      },
+      "complexity": {
+        "noForEach": "off",
+        "useOptionalChain": "warn"
+      },
+      "performance": {
+        "noDelete": "off"
       }
     }
   },
   "files": {
-    "includes": ["src/**/*.js", "src/**/*.ts", "src/**/*.vue"],
-    "experimentalScannerIgnores": ["node_modules", "dist", "*.min.js"]
-  }
+    "maxSize": 1048576,
+    "ignoreUnknown": true,
+    "includes": [
+      "src/**/*.js",
+      "src/**/*.jsx",
+      "src/**/*.ts",
+      "src/**/*.tsx",
+      "src/**/*.mjs",
+      "src/**/*.cjs",
+      "*.config.js",
+      "*.config.ts",
+      "*.config.mjs",
+      "*.config.cjs",
+      "!**/node_modules",
+      "!**/dist",
+      "!**/build",
+      "!**/.rsbuild",
+      "!**/coverage",
+      "!**/*.min.js",
+      "!**/*.bundle.js",
+      "!**/*.lock"
+    ]
+  },
+  "overrides": [
+    {
+      "includes": ["*.test.ts", "*.test.tsx", "*.spec.ts", "*.spec.tsx"],
+      "linter": {
+        "rules": {
+          "style": {
+            "noNonNullAssertion": "off"
+          },
+          "suspicious": {
+            "noExplicitAny": "off"
+          }
+        }
+      }
+    }
+  ]
 }
